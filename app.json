@@ -1,0 +1,104 @@
+{
+  "expo": {
+    "name": "armemosla",
+    "slug": "armemosla",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icono.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/logopng.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#00000000"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "armemosla",
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.dummy"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icono.png",
+          "color": "#ffffff",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Permitir acceso al micrófono para grabar audio."
+        }
+      ],
+      "expo-video",
+      "expo-dev-client",
+      [
+        "expo-maps",
+        {
+          "googleMapsApiKey": "AIzaSyDc6OMuPyp8UBaYHq2HaprhLyVVHiF9LZU"
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.armemosla.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio", "remote-notification"],
+        "NSLocationWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa."
+      },
+      "config": {
+        "googleSignIn": {
+          "reservedClientId": ""
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icono.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.armemosla.app",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "NOTIFICATIONS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDc6OMuPyp8UBaYHq2HaprhLyVVHiF9LZU"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "167598bd-6349-4ac2-9735-3d3a18fe88b2"
+      },
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "googleIosClientId": "",
+      "googleAndroidClientId": "",
+      "googleWebClientId": ""
+    }
+  }
+}

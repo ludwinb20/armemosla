@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "746084376004",
+    "project_id": "armemosla",
+    "storage_bucket": "armemosla.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746084376004:android:4ff9f34ac35310a1095891",
+        "android_client_info": {
+          "package_name": "com.armemosla.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746084376004-f4s4827po9aomal6bo1neo4no05mh4mo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEvn8v8ICUMQPsgrb2C3Z99I3Gp5vu92E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746084376004-f4s4827po9aomal6bo1neo4no05mh4mo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
