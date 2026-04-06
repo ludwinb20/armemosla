@@ -1,21 +1,100 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import 'react-native-css-interop/jsx-runtime';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { StatusBar } from 'react-native';
+import { StatusBar, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
+import '../global.css';
 
-import { useColorScheme } from '../hooks/use-color-scheme';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import { getColors } from '../constants/theme';
 
 // Mantener la splash screen visible mientras se carga
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+// Función helper para detectar errores de keep-awake
+const isKeepAwakeError = (error: any): boolean => {
+  if (!error) return false;
+  
+  const errorStr = 
+    error?.message?.toString() || 
+    error?.toString() || 
+    JSON.stringify(error) || 
+    '';
+  
+  return (
+    errorStr.includes('Unable to activate keep awake') ||
+    errorStr.includes('keep awake') ||
+    errorStr.includes('expo-keep-awake')
+  );
+};
+
+// Manejar errores no capturados de keep-awake (problema conocido de expo-dev-client en Android)
+if (typeof ErrorUtils !== 'undefined' && ErrorUtils.getGlobalHandler) {
+  const originalGlobalHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error: any, isFatal?: boolean) => {
+    // Suprimir el error de keep-awake (error conocido de expo-dev-client que no afecta la funcionalidad)
+    if (isKeepAwakeError(error)) {
+      // Solo loguear como warning en desarrollo, no como error
+      if (__DEV__) {
+        console.warn('⚠️ [Keep Awake] Error suprimido (conocido de expo-dev-client)');
+      }
+      return;
+    }
+    // Llamar al handler original para otros errores
+    if (originalGlobalHandler) {
+      originalGlobalHandler(error, isFatal);
+    }
+  });
+}
+
+// También manejar promesas rechazadas no capturadas relacionadas con keep-awake
+if (typeof global !== 'undefined') {
+  const originalPromiseRejectionHandler = global.onunhandledrejection;
+  global.onunhandledrejection = (event: any) => {
+    const error = event?.reason || event;
+    
+    // Suprimir promesas rechazadas relacionadas con keep-awake
+    if (isKeepAwakeError(error)) {
+      event.preventDefault?.();
+      if (__DEV__) {
+        console.warn('⚠️ [Keep Awake] Promesa rechazada suprimida (conocido de expo-dev-client)');
+      }
+      return;
+    }
+    
+    // Dejar que otros errores se manejen normalmente
+    if (originalPromiseRejectionHandler) {
+      originalPromiseRejectionHandler(event);
+    }
+  };
+}
+
+// Manejar también errores de console.error relacionados con keep-awake (para Android)
+const originalConsoleError = console.error;
+console.error = (...args: any[]) => {
+  const errorString = args.map(arg => 
+    typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+  ).join(' ');
+  
+  if (isKeepAwakeError(errorString)) {
+    if (__DEV__) {
+      console.warn('⚠️ [Keep Awake] Error de consola suprimido (conocido de expo-dev-client)');
+    }
+    return;
+  }
+  
+  originalConsoleError.apply(console, args);
+};
+
+function RootLayoutContent() {
+  const { theme } = useTheme();
   usePushNotifications();
+  const colors = getColors(theme);
 
   useEffect(() => {
     // Ocultar splash screen cuando todo esté listo
@@ -34,23 +113,38 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <SafeAreaProvider>
-          <StatusBar hidden={true} />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: colorScheme === 'dark' ? '#000' : '#fff' },
-            }}
-          >
+    <NavigationThemeProvider value={theme === 'dark' ? DarkTheme : DefaultTheme}>
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <StatusBar 
+            barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+            translucent={Platform.OS === 'android'}
+            backgroundColor={colors.background}
+          />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        >
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="login" options={{ headerShown: false }} />
             <Stack.Screen name="select-user-type" options={{ headerShown: false }} />
             <Stack.Screen name="complejo-form" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          </Stack>
-        </SafeAreaProvider>
+            <Stack.Screen name="cancha-form" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        </Stack>
+          </SafeAreaView>
+      </SafeAreaProvider>
+    </NavigationThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <RootLayoutContent />
       </ThemeProvider>
     </GestureHandlerRootView>
   );

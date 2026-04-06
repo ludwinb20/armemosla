@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { globalStyles } from '../styles/globalStyles';
 import { Colors } from '../constants/theme';
-import { hasUserType } from '../lib/user';
+import { hasUserType, getUserType } from '../lib/user';
 
 export default function Index() {
   const router = useRouter();
@@ -20,7 +20,10 @@ export default function Index() {
           // Hay sesión activa, verificar si tiene tipo de usuario configurado
           const hasType = await hasUserType();
           if (hasType) {
-            router.replace('/(tabs)/home');
+            // Redirigir según el tipo de usuario
+            const userType = await getUserType();
+            const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+            router.replace(initialRoute);
           } else {
             router.replace('/select-user-type');
           }
@@ -44,7 +47,10 @@ export default function Index() {
         // Verificar si tiene tipo de usuario configurado
         const hasType = await hasUserType();
         if (hasType) {
-          router.replace('/(tabs)/home');
+          // Redirigir según el tipo de usuario
+          const userType = await getUserType();
+          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+          router.replace(initialRoute);
         } else {
           router.replace('/select-user-type');
         }

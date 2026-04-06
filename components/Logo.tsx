@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, ImageStyle, StyleSheet, View, ViewStyle } from 'react-native';
+import { Image, ImageStyle, View, ViewStyle } from 'react-native';
 
 type LogoVariant = 'full' | 'icon' | 'text';
 type LogoFormat = 'png' | 'svg';
@@ -50,14 +50,13 @@ export const Logo: React.FC<LogoProps> = ({
   };
 
   return (
-    <View style={[styles.container, style]}>
+    <View className="items-center justify-center" style={style}>
       <Image
         source={getLogoSource()}
+        className={`w-full h-full ${!width && !height ? 'w-[200px] h-[60px]' : ''}`}
         style={[
-          styles.image,
           width && { width },
           height && { height },
-          !width && !height && styles.defaultSize,
         ]}
         resizeMode={resizeMode}
       />
@@ -65,20 +64,6 @@ export const Logo: React.FC<LogoProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
-  },
-  defaultSize: {
-    width: 200,
-    height: 60,
-  },
-});
 
 export default Logo;
 

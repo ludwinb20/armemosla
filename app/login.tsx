@@ -15,7 +15,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { router } from 'expo-router';
 import { Colors, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { hasUserType } from '../lib/user';
+import { hasUserType, getUserType } from '../lib/user';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCustomAlert } from '../hooks/useCustomAlert';
@@ -23,7 +23,12 @@ import CustomAlert from '../components/CustomAlert';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { Logo } from '../components/Logo';
-import Constants from 'expo-constants';
+import RNModal from 'react-native-modal';
+import {
+  getRModalBackdropProps,
+  getRModalCenterSheetStyle,
+  rModalAnimLeft,
+} from '../lib/rnModalPresets';
 
 const { width } = Dimensions.get('window');
 
@@ -38,7 +43,9 @@ export default function LoginScreen() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
-  const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm } = useCustomAlert();
+  const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
+  const rBackdrop = getRModalBackdropProps();
+  const rCenter = getRModalCenterSheetStyle();
 
   useEffect(() => {
     const configureGoogleSignIn = () => {
@@ -128,7 +135,10 @@ export default function LoginScreen() {
         // Verificar si el usuario tiene tipo configurado
         const hasType = await hasUserType();
         if (hasType) {
-          router.push('/(tabs)/home');
+          // Redirigir según el tipo de usuario
+          const userType = await getUserType();
+          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+          router.push(initialRoute);
         } else {
           router.push('/select-user-type');
         }
@@ -223,7 +233,10 @@ export default function LoginScreen() {
         // Verificar si el usuario tiene tipo configurado
         const hasType = await hasUserType();
         if (hasType) {
-          router.push('/(tabs)/home');
+          // Redirigir según el tipo de usuario
+          const userType = await getUserType();
+          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+          router.push(initialRoute);
         } else {
           router.push('/select-user-type');
         }
@@ -328,7 +341,10 @@ export default function LoginScreen() {
             // Si puede iniciar sesión, verificar tipo de usuario
             const hasType = await hasUserType();
             if (hasType) {
-              router.push('/(tabs)/home');
+              // Redirigir según el tipo de usuario
+              const userType = await getUserType();
+              const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+              router.push(initialRoute);
             } else {
               router.push('/select-user-type');
             }
@@ -597,70 +613,86 @@ export default function LoginScreen() {
       </KeyboardAvoidingView>
 
       {/* Forgot Password Modal */}
-      {showForgotPassword && (
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Recuperar Contraseña</Text>
-              <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => {
-                  setShowForgotPassword(false);
-                  setResetEmail('');
-                }}
-                disabled={resetLoading}
-              >
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
+      <RNModal
+        {...rBackdrop}
+        {...rModalAnimLeft}
+        isVisible={showForgotPassword}
+        onBackdropPress={() => {
+          if (!resetLoading) {
+            setShowForgotPassword(false);
+            setResetEmail('');
+          }
+        }}
+        onBackButtonPress={() => {
+          if (!resetLoading) {
+            setShowForgotPassword(false);
+            setResetEmail('');
+          }
+        }}
+        avoidKeyboard
+        style={rCenter}
+      >
+        <View style={styles.forgotPasswordCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Recuperar Contraseña</Text>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setShowForgotPassword(false);
+                setResetEmail('');
+              }}
+              disabled={resetLoading}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalContent}>
+            <Text style={styles.modalDescription}>
+              Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+            </Text>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Correo electrónico</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="tu@email.com"
+                placeholderTextColor={Colors.textTertiary}
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!resetLoading}
+              />
             </View>
 
-            <View style={styles.modalContent}>
-              <Text style={styles.modalDescription}>
-                Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
-              </Text>
+            <TouchableOpacity
+              style={[styles.primaryButton, resetLoading && styles.buttonDisabled]}
+              onPress={handleForgotPassword}
+              disabled={resetLoading}
+              activeOpacity={0.8}
+            >
+              {resetLoading ? (
+                <ActivityIndicator color={Colors.textInverse} size="small" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Enviar enlace</Text>
+              )}
+            </TouchableOpacity>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Correo electrónico</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="tu@email.com"
-                  placeholderTextColor={Colors.textTertiary}
-                  value={resetEmail}
-                  onChangeText={setResetEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!resetLoading}
-                />
-              </View>
-
-              <TouchableOpacity
-                style={[styles.primaryButton, resetLoading && styles.buttonDisabled]}
-                onPress={handleForgotPassword}
-                disabled={resetLoading}
-                activeOpacity={0.8}
-              >
-                {resetLoading ? (
-                  <ActivityIndicator color={Colors.textInverse} size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Enviar enlace</Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => {
-                  setShowForgotPassword(false);
-                  setResetEmail('');
-                }}
-                disabled={resetLoading}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={styles.forgotModalCancelButton}
+              onPress={() => {
+                setShowForgotPassword(false);
+                setResetEmail('');
+              }}
+              disabled={resetLoading}
+            >
+              <Text style={styles.cancelButtonText}>Cancelar</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      )}
+      </RNModal>
 
       {/* Custom Alert */}
       <CustomAlert
@@ -669,7 +701,9 @@ export default function LoginScreen() {
         message={alertOptions.message}
         type={alertOptions.type}
         confirmText={alertOptions.confirmText}
+        cancelText={alertOptions.cancelText}
         onConfirm={handleConfirm}
+        onCancel={handleCancel || hideAlert}
       />
     </SafeAreaView>
   );
@@ -869,23 +903,13 @@ const styles = StyleSheet.create({
     color: Colors.secondary,
     fontWeight: '500',
   },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  modalContainer: {
+  forgotPasswordCard: {
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.lg,
-    width: '85%',
+    width: '100%',
     maxWidth: 400,
     ...Shadows.lg,
+    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -922,7 +946,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: Spacing.md,
   },
-  cancelButton: {
+  forgotModalCancelButton: {
     marginTop: Spacing.md,
     paddingVertical: Spacing.md,
     alignItems: 'center',

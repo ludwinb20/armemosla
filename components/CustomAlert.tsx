@@ -1,22 +1,16 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Modal,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native';
-import { Colors, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { AlertOptions } from '../hooks/useCustomAlert';
-
+import { View, Text, TouchableOpacity } from 'react-native';
+import RNModal from 'react-native-modal';
+import { Colors } from '../constants/theme';
 interface CustomAlertProps {
   visible: boolean;
   title: string;
   message: string;
   type: 'error' | 'success' | 'info' | 'warning';
   confirmText?: string;
+  cancelText?: string;
   onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
 export default function CustomAlert({
@@ -25,7 +19,9 @@ export default function CustomAlert({
   message,
   type,
   confirmText = 'OK',
+  cancelText,
   onConfirm,
+  onCancel,
 }: CustomAlertProps) {
   const getTypeColor = () => {
     switch (type) {
@@ -41,79 +37,57 @@ export default function CustomAlert({
     }
   };
 
+  const handleBackdrop = () => {
+    if (onCancel) {
+      onCancel();
+    } else {
+      onConfirm?.();
+    }
+  };
+
+  const handleBackButton = () => {
+    handleBackdrop();
+  };
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onConfirm}
+    <RNModal
+      isVisible={visible}
+      onBackdropPress={handleBackdrop}
+      onBackButtonPress={handleBackButton}
+      animationIn="fadeIn"
+      animationOut="fadeOut"
+      backdropOpacity={0.45}
+      useNativeDriverForBackdrop
+      hideModalContentWhileAnimating
+      style={{ margin: 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}
     >
-      <View style={styles.overlay}>
-        <View style={styles.container}>
-          <View style={[styles.header, { backgroundColor: getTypeColor() }]}>
-            <Text style={styles.title}>{title}</Text>
-          </View>
-          <View style={styles.content}>
-            <Text style={styles.message}>{message}</Text>
+      <View className="bg-background rounded-lg w-full max-w-[400px] overflow-hidden shadow-lg">
+        <View className="p-lg">
+          {title ? (
+            <Text className="text-lg font-semibold text-text text-center mb-sm">{title}</Text>
+          ) : null}
+          <Text className="text-md text-text leading-[22px] mb-lg text-center">{message}</Text>
+          <View className="flex-row gap-sm">
+            {onCancel && (
+              <TouchableOpacity
+                className="flex-1 py-md px-lg rounded-md items-center bg-border-light"
+                onPress={onCancel}
+                activeOpacity={0.8}
+              >
+                <Text className="text-md font-semibold text-text">{cancelText || 'Cancelar'}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: getTypeColor() }]}
-              onPress={onConfirm}
+              className={`${onCancel ? 'flex-1' : 'w-full'} py-md px-lg rounded-md items-center`}
+              style={{ backgroundColor: getTypeColor() }}
+              onPress={onConfirm || (() => {})}
               activeOpacity={0.8}
             >
-              <Text style={styles.buttonText}>{confirmText}</Text>
+              <Text className="text-md font-semibold text-text-inverse">{confirmText}</Text>
             </TouchableOpacity>
           </View>
         </View>
       </View>
-    </Modal>
+    </RNModal>
   );
 }
-
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-  },
-  container: {
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
-    width: '100%',
-    maxWidth: 400,
-    overflow: 'hidden',
-    ...Shadows.lg,
-  },
-  header: {
-    padding: Spacing.md,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textInverse,
-  },
-  content: {
-    padding: Spacing.lg,
-  },
-  message: {
-    fontSize: 16,
-    color: Colors.text,
-    lineHeight: 22,
-    marginBottom: Spacing.lg,
-    textAlign: 'center',
-  },
-  button: {
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textInverse,
-  },
-});
-

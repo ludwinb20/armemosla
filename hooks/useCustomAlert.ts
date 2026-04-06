@@ -7,7 +7,9 @@ export interface AlertOptions {
   message: string;
   type: AlertType;
   confirmText?: string;
+  cancelText?: string;
   onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
 export const useCustomAlert = () => {
@@ -27,43 +29,79 @@ export const useCustomAlert = () => {
     setAlertVisible(true);
   };
 
-  const showError = (title: string, message: string, onConfirm?: () => void) => {
+  const showError = (
+    title: string,
+    message: string,
+    onConfirm?: () => void,
+    onCancel?: () => void,
+    confirmText?: string,
+    cancelText?: string
+  ) => {
     showAlert({
       title,
       message,
       type: 'error',
-      confirmText: 'OK',
+      confirmText: confirmText || 'OK',
+      cancelText,
       onConfirm,
+      onCancel,
     });
   };
 
-  const showSuccess = (title: string, message: string, onConfirm?: () => void) => {
+  const showSuccess = (
+    title: string,
+    message: string,
+    onConfirm?: () => void,
+    onCancel?: () => void,
+    confirmText?: string,
+    cancelText?: string
+  ) => {
     showAlert({
       title,
       message,
       type: 'success',
-      confirmText: 'OK',
+      confirmText: confirmText || 'OK',
+      cancelText,
       onConfirm,
+      onCancel,
     });
   };
 
-  const showInfo = (title: string, message: string, onConfirm?: () => void) => {
+  const showInfo = (
+    title: string,
+    message: string,
+    onConfirm?: () => void,
+    onCancel?: () => void,
+    confirmText?: string,
+    cancelText?: string
+  ) => {
     showAlert({
       title,
       message,
       type: 'info',
-      confirmText: 'OK',
+      confirmText: confirmText || 'OK',
+      cancelText,
       onConfirm,
+      onCancel,
     });
   };
 
-  const showWarning = (title: string, message: string, onConfirm?: () => void) => {
+  const showWarning = (
+    title: string,
+    message: string,
+    onConfirm?: () => void,
+    onCancel?: () => void,
+    confirmText?: string,
+    cancelText?: string
+  ) => {
     showAlert({
       title,
       message,
       type: 'warning',
-      confirmText: 'OK',
+      confirmText: confirmText || 'OK',
+      cancelText,
       onConfirm,
+      onCancel,
     });
   };
 
@@ -78,6 +116,13 @@ export const useCustomAlert = () => {
     hideAlert();
   };
 
+  const handleCancel = () => {
+    if (alertOptions.onCancel) {
+      alertOptions.onCancel();
+    }
+    hideAlert();
+  };
+
   return {
     alertVisible,
     alertOptions,
@@ -88,6 +133,7 @@ export const useCustomAlert = () => {
     showWarning,
     hideAlert,
     handleConfirm,
+    handleCancel,
   };
 };
 

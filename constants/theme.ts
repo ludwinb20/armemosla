@@ -5,52 +5,113 @@
  * y otros valores de diseño que se usarán consistentemente en la app.
  */
 
-export const Colors = {
-  // Colores principales - Verde basado en el logo
-  primary: '#34C759', // Verde principal del logo
-  primaryDark: '#28A745', // Verde oscuro
-  primaryLight: '#5AD27D', // Verde claro
+export type ThemeMode = 'dark' | 'light';
+
+// Paleta de colores para modo oscuro (default)
+export const darkColors = {
+  // Colores principales - Verde logo (#00C56E)
+  primary: '#00C56E', // Verde logo principal
+  primaryDark: '#00A05A', // Verde más oscuro
+  primaryLight: '#00E07D', // Verde más claro
   
-  // Colores secundarios - Azul
-  secondary: '#1E3A8A',      // Azul profundo
-  secondaryDark: '#162A63',   // Azul más oscuro
-  secondaryLight: '#3B5BAF',  // Azul claro
+  // Colores secundarios - Variante del verde
+  secondary: '#00A05A',      // Verde secundario
+  secondaryDark: '#008045',   // Verde más oscuro
+  secondaryLight: '#00C56E',  // Verde logo (mismo que primary)
   
-  // Colores de acento - Verde complementario
-  accent: '#2ECC71', // Verde acento
-  accentDark: '#27AE60',
-  accentLight: '#58D68D',
+  // Colores de acento - Variante del verde
+  accent: '#00E07D', // Verde acento
+  accentDark: '#00C56E',
+  accentLight: '#1AE88F',
   
-  // Colores neutros - Fondos
-  background: '#FFFFFF',
-  surface: '#FFFFFF',       // Blanco puro para cards y elementos
-  surfaceDark: '#F8F8F8',   // Blanco con tinte muy sutil para contraste
+  // Colores neutros - Fondo negro (#000000)
+  background: '#000000', // Negro puro principal para fondos
+  surface: '#121212',       // Gris muy oscuro para cards y elementos
+  surfaceDark: '#0A0A0A',   // Gris más oscuro para contraste
+  surfaceLight: '#1A1A1A',  // Gris más claro
   
-  // Colores de texto - Grises oscuros
-  text: '#1D1D1F',
-  textSecondary: '#6E6E73',
-  textTertiary: '#86868B',
-  textInverse: '#FFFFFF',
+  // Colores de texto - Blanco (#FFFFFF)
+  text: '#FFFFFF', // Blanco para texto principal
+  textSecondary: '#CCCCCC', // Gris claro para texto secundario
+  textTertiary: '#999999', // Gris medio para texto terciario
+  textInverse: '#000000', // Negro para texto sobre fondos claros
   
   // Colores de estado
-  success: '#34C759', // Verde para éxito
-  warning: '#FF9500', // Naranja para advertencias
-  error: '#FF3B30', // Rojo para errores
-  info: '#34C759', // Verde para información
+  success: '#00C56E', // Verde logo para éxito
+  warning: '#F59E0B', // Naranja/ámbar para advertencias
+  error: '#EF4444', // Rojo para errores
+  info: '#00C56E', // Verde logo para información
   
-  // Colores de borde
-  border: '#D1D1D6',
-  borderLight: '#E5E5EA',
-  borderDark: '#C7C7CC',
+  // Colores de borde - Gris grafito (#2A2A2A)
+  border: '#2A2A2A', // Gris grafito para bordes
+  borderLight: '#3A3A3A', // Gris claro para bordes sutiles
+  borderDark: '#1A1A1A', // Gris oscuro para bordes destacados
   
   // Colores de sombra
-  shadow: 'rgba(0, 0, 0, 0.1)',
+  shadow: 'rgba(0, 0, 0, 0.3)', // Sombra negra
+  shadowDark: 'rgba(0, 0, 0, 0.5)',
+  
+  // Colores de overlay
+  overlay: 'rgba(0, 0, 0, 0.8)', // Overlay negro
+  overlayLight: 'rgba(0, 0, 0, 0.5)',
+};
+
+// Paleta de colores para modo claro
+export const lightColors = {
+  // Colores principales - Verde logo (#00C56E) - igual en ambos modos
+  primary: '#00C56E',
+  primaryDark: '#00A05A',
+  primaryLight: '#00E07D',
+  
+  // Colores secundarios - igual en ambos modos
+  secondary: '#00A05A',
+  secondaryDark: '#008045',
+  secondaryLight: '#00C56E',
+  
+  // Colores de acento - igual en ambos modos
+  accent: '#00E07D',
+  accentDark: '#00C56E',
+  accentLight: '#1AE88F',
+  
+  // Colores neutros - Fondo claro
+  background: '#FFFFFF', // Blanco para fondos
+  surface: '#F5F5F5',       // Gris muy claro para cards
+  surfaceDark: '#E5E5E5',   // Gris claro para contraste
+  surfaceLight: '#FAFAFA',  // Casi blanco
+  
+  // Colores de texto - Negro sobre fondo claro
+  text: '#000000', // Negro para texto principal
+  textSecondary: '#666666', // Gris oscuro para texto secundario
+  textTertiary: '#999999', // Gris medio para texto terciario
+  textInverse: '#FFFFFF', // Blanco para texto sobre fondos oscuros
+  
+  // Colores de estado - igual en ambos modos
+  success: '#00C56E',
+  warning: '#F59E0B',
+  error: '#EF4444',
+  info: '#00C56E',
+  
+  // Colores de borde - Gris claro
+  border: '#E0E0E0', // Gris claro para bordes
+  borderLight: '#F0F0F0', // Gris muy claro para bordes sutiles
+  borderDark: '#CCCCCC', // Gris medio para bordes destacados
+  
+  // Colores de sombra
+  shadow: 'rgba(0, 0, 0, 0.1)', // Sombra negra suave
   shadowDark: 'rgba(0, 0, 0, 0.2)',
   
   // Colores de overlay
-  overlay: 'rgba(0, 0, 0, 0.5)',
+  overlay: 'rgba(0, 0, 0, 0.5)', // Overlay negro
   overlayLight: 'rgba(0, 0, 0, 0.3)',
 };
+
+// Exportar Colors como dark por defecto (para compatibilidad con código existente)
+export const Colors = darkColors;
+
+// Función para obtener colores según el tema
+export function getColors(theme: ThemeMode = 'dark') {
+  return theme === 'light' ? lightColors : darkColors;
+}
 
 export const Spacing = {
   xs: 4,

@@ -31,11 +31,11 @@ export function usePushNotifications() {
     });
 
     return () => {
-      if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
+      if (notificationListener.current && typeof notificationListener.current.remove === 'function') {
+        notificationListener.current.remove();
       }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+      if (responseListener.current && typeof responseListener.current.remove === 'function') {
+        responseListener.current.remove();
       }
     };
   }, []);

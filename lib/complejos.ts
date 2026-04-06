@@ -8,6 +8,7 @@ export interface Complejo {
   direccion_texto?: string;
   direccion_lat?: number;
   direccion_lng?: number;
+  activo: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -102,7 +103,7 @@ export async function getComplejoById(id: string): Promise<ComplejoWithFotos | n
  * Crea un nuevo complejo
  */
 export async function createComplejo(
-  complejo: Omit<Complejo, 'id' | 'admin_id' | 'created_at' | 'updated_at'>
+  complejo: Omit<Complejo, 'id' | 'admin_id' | 'created_at' | 'updated_at' | 'activo'>
 ): Promise<Complejo> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -113,6 +114,7 @@ export async function createComplejo(
       .insert({
         ...complejo,
         admin_id: user.id,
+        activo: true, // Los nuevos complejos se crean activos por defecto
       })
       .select()
       .single();
@@ -153,22 +155,25 @@ export async function updateComplejo(
 }
 
 /**
- * Elimina un complejo
+ * Desactiva o activa un complejo
  */
-export async function deleteComplejo(id: string): Promise<void> {
+export async function toggleComplejoActivo(id: string, activo: boolean): Promise<Complejo> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('complejos')
-      .delete()
+      .update({ activo })
       .eq('id', id)
-      .eq('admin_id', user.id);
+      .eq('admin_id', user.id)
+      .select()
+      .single();
 
     if (error) throw error;
+    return data;
   } catch (error: any) {
-    console.error('❌ [deleteComplejo] Error:', error);
+    console.error('❌ [toggleComplejoActivo] Error:', error);
     throw error;
   }
 }
@@ -217,3 +222,42 @@ export async function deleteComplejoFoto(id: string): Promise<void> {
   }
 }
 
+/**
+ * Obtiene todos los complejos públicos activos (para jugadores)
+ * Sin filtrar por administrador
+ */
+export async function getComplejosPublicos(): Promise<ComplejoWithFotos[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data: complejos, error } = await supabase
+      .from('complejos')
+      .select('*')
+      .eq('activo', true)
+      .order('nombre', { ascending: true });
+
+    if (error) throw error;
+
+    // Obtener fotos para cada complejo
+    const complejosWithFotos = await Promise.all(
+      (complejos || []).map(async (complejo) => {
+        const { data: fotos } = await supabase
+          .from('complejo_fotos')
+          .select('*')
+          .eq('complejo_id', complejo.id)
+          .order('orden', { ascending: true });
+
+        return {
+          ...complejo,
+          fotos: fotos || [],
+        };
+      })
+    );
+
+    return complejosWithFotos;
+  } catch (error: any) {
+    console.error('❌ [getComplejosPublicos] Error:', error);
+    throw error;
+  }
+}

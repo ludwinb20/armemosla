@@ -142,3 +142,4 @@ Después de aplicar las soluciones, verifica que:
 - EAS Build maneja mejor estos problemas que builds locales
 - Si el problema persiste, considera crear un issue en el repositorio de expo-maps
 
+

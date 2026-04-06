@@ -28,7 +28,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icono.png",
-          "color": "#ffffff",
+          "color": "#000000",
           "sounds": []
         }
       ],
@@ -52,7 +52,10 @@
       "bundleIdentifier": "com.armemosla.app",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "remote-notification"],
+        "UIBackgroundModes": [
+          "audio",
+          "remote-notification"
+        ],
         "NSLocationWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa."
       },
@@ -65,7 +68,8 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icono.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000",
+        "resizeMode": "contain"
       },
       "package": "com.armemosla.app",
       "googleServicesFile": "./google-services.json",
@@ -78,7 +82,9 @@
         "RECORD_AUDIO",
         "NOTIFICATIONS",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "config": {
         "googleMaps": {
@@ -92,13 +98,14 @@
     },
     "extra": {
       "eas": {
-        "projectId": "167598bd-6349-4ac2-9735-3d3a18fe88b2"
+        "projectId": "845ee3c3-eebd-4ae8-a15a-a2060ccc3d77"
       },
       "supabaseUrl": "",
       "supabaseAnonKey": "",
       "googleIosClientId": "",
       "googleAndroidClientId": "",
       "googleWebClientId": ""
-    }
+    },
+    "owner": "ludwinb"
   }
 }

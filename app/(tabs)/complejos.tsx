@@ -14,15 +14,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../../constants/theme';
-import { getComplejos, ComplejoWithFotos, deleteComplejo } from '../../lib/complejos';
+import { getComplejos, ComplejoWithFotos } from '../../lib/complejos';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 export default function ComplejosScreen() {
   const router = useRouter();
+  const colors = useThemeColors();
   const [complejos, setComplejos] = useState<ComplejoWithFotos[]>([]);
   const [loading, setLoading] = useState(true);
-  const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm } = useCustomAlert();
+  const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   useFocusEffect(
     React.useCallback(() => {
@@ -43,25 +45,10 @@ export default function ComplejosScreen() {
     }
   };
 
-  const handleDelete = async (id: string, nombre: string) => {
-    showError(
-      'Confirmar eliminación',
-      `¿Estás seguro de que deseas eliminar el complejo "${nombre}"? Esta acción no se puede deshacer.`,
-      async () => {
-        try {
-          await deleteComplejo(id);
-          showSuccess('Éxito', 'Complejo eliminado correctamente');
-          loadComplejos();
-        } catch (error: any) {
-          showError('Error', 'No se pudo eliminar el complejo');
-        }
-      }
-    );
-  };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
         </View>
@@ -70,13 +57,13 @@ export default function ComplejosScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mis Complejos</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Mis Complejos</Text>
         <TouchableOpacity
           onPress={() => router.push('/complejo-form')}
           style={styles.addButton}
@@ -99,9 +86,9 @@ export default function ComplejosScreen() {
       >
         {complejos.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="business-outline" size={64} color={Colors.textSecondary} />
-            <Text style={styles.emptyTitle}>No tienes complejos</Text>
-            <Text style={styles.emptyText}>
+            <Ionicons name="business-outline" size={64} color={colors.textSecondary} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No tienes complejos</Text>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               Crea tu primer complejo deportivo para comenzar
             </Text>
             <TouchableOpacity
@@ -115,7 +102,11 @@ export default function ComplejosScreen() {
           complejos.map((complejo) => (
             <TouchableOpacity
               key={complejo.id}
-              style={styles.complejoCard}
+              style={[
+                styles.complejoCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                complejo.activo && { borderColor: colors.borderLight, borderWidth: 2 },
+              ]}
               onPress={() => router.push(`/complejo-form?id=${complejo.id}`)}
             >
               <View style={styles.complejoHeader}>
@@ -130,16 +121,37 @@ export default function ComplejosScreen() {
                   </View>
                 )}
                 <View style={styles.complejoInfo}>
-                  <Text style={styles.complejoName}>{complejo.nombre}</Text>
-                  <View style={styles.complejoAddress}>
-                    <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
-                    <Text style={styles.complejoAddressText}>
-                      {complejo.direccion_texto || 
-                       (complejo.direccion_lat && complejo.direccion_lng 
-                         ? `${complejo.direccion_lat.toFixed(6)}, ${complejo.direccion_lng.toFixed(6)}`
-                         : 'Sin dirección')}
-                    </Text>
+                  <View style={styles.complejoNameRow}>
+                    <Text style={styles.complejoName}>{complejo.nombre}</Text>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        complejo.activo ? styles.statusBadgeActive : styles.statusBadgeInactive,
+                      ]}
+                    >
+                      <Ionicons
+                        name={complejo.activo ? 'checkmark-circle' : 'close-circle'}
+                        size={12}
+                        color={complejo.activo ? Colors.secondary : Colors.error}
+                      />
+                      <Text
+                        style={[
+                          styles.statusBadgeText,
+                          complejo.activo ? styles.statusBadgeTextActive : styles.statusBadgeTextInactive,
+                        ]}
+                      >
+                        {complejo.activo ? 'Activo' : 'Inactivo'}
+                      </Text>
+                    </View>
                   </View>
+                  {complejo.direccion_texto && (
+                    <View style={styles.complejoAddress}>
+                      <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
+                      <Text style={styles.complejoAddressText}>
+                        {complejo.direccion_texto}
+                      </Text>
+                    </View>
+                  )}
                   {complejo.fotos && complejo.fotos.length > 0 && (
                     <View style={styles.complejoFotos}>
                       <Ionicons name="images-outline" size={14} color={Colors.textSecondary} />
@@ -149,12 +161,6 @@ export default function ComplejosScreen() {
                     </View>
                   )}
                 </View>
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDelete(complejo.id, complejo.nombre)}
-                >
-                  <Ionicons name="trash-outline" size={20} color={Colors.error} />
-                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           ))
@@ -167,7 +173,9 @@ export default function ComplejosScreen() {
         message={alertOptions.message}
         type={alertOptions.type}
         confirmText={alertOptions.confirmText}
+        cancelText={alertOptions.cancelText}
         onConfirm={handleConfirm}
+        onCancel={handleCancel || hideAlert}
       />
     </SafeAreaView>
   );
@@ -218,13 +226,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.text,
     marginTop: Spacing.md,
     marginBottom: Spacing.xs,
   },
   emptyText: {
     fontSize: Typography.fontSize.sm,
-    color: Colors.textSecondary,
     textAlign: 'center',
     marginBottom: Spacing.lg,
   },
@@ -241,10 +247,10 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.semibold,
   },
   complejoCard: {
-    backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
+    borderWidth: 1,
     ...Shadows.sm,
   },
   complejoHeader: {
@@ -261,7 +267,6 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.borderLight,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: Spacing.sm,
@@ -269,11 +274,27 @@ const styles = StyleSheet.create({
   complejoInfo: {
     flex: 1,
   },
+  complejoNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+    gap: Spacing.xs,
+  },
   complejoName: {
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.semibold,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
+    flex: 1,
+  },
+  inactiveBadge: {
+    backgroundColor: Colors.textSecondary,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+  },
+  inactiveBadgeText: {
+    fontSize: Typography.fontSize.xs,
+    color: Colors.textInverse,
+    fontWeight: Typography.fontWeight.medium,
   },
   complejoAddress: {
     flexDirection: 'row',
@@ -282,7 +303,6 @@ const styles = StyleSheet.create({
   },
   complejoAddressText: {
     fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
     marginLeft: Spacing.xs,
     flex: 1,
   },
@@ -292,11 +312,28 @@ const styles = StyleSheet.create({
   },
   complejoFotosText: {
     fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
     marginLeft: Spacing.xs,
   },
-  deleteButton: {
-    padding: Spacing.xs,
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    gap: 4,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    gap: 4,
+    borderWidth: 1,
+  },
+  statusBadgeText: {
+    fontSize: Typography.fontSize.xs,
+    fontWeight: Typography.fontWeight.medium,
   },
 });
 

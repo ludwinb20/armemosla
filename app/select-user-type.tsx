@@ -21,7 +21,7 @@ type UserType = 'Jugador' | 'Administrador de Cancha';
 export default function SelectUserTypeScreen() {
   const [selectedType, setSelectedType] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
-  const { alertVisible, alertOptions, showError, hideAlert, handleConfirm } = useCustomAlert();
+  const { alertVisible, alertOptions, showError, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   const handleSelectType = async () => {
     if (!selectedType) {
@@ -57,8 +57,9 @@ export default function SelectUserTypeScreen() {
 
       console.log('✅ [SelectUserType] Tipo de usuario guardado:', selectedType);
       
-      // Redirigir a home
-      router.replace('/(tabs)/home');
+      // Redirigir según el tipo de usuario seleccionado
+      const initialRoute = selectedType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
+      router.replace(initialRoute);
     } catch (err: any) {
       console.error('❌ [SelectUserType] Error general:', {
         message: err.message,
@@ -191,7 +192,9 @@ export default function SelectUserTypeScreen() {
         message={alertOptions.message}
         type={alertOptions.type}
         confirmText={alertOptions.confirmText}
+        cancelText={alertOptions.cancelText}
         onConfirm={handleConfirm}
+        onCancel={handleCancel || hideAlert}
       />
     </SafeAreaView>
   );
@@ -245,7 +248,7 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
   },
   optionCardSelected: {
-    borderColor: Colors.primary,
+    borderColor: Colors.borderLight,
     backgroundColor: Colors.background,
     ...Shadows.md,
   },

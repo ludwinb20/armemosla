@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,189 +6,395 @@ import {
   StyleSheet,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
+  TextInput,
 } from 'react-native';
+import RNModal from 'react-native-modal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../constants/theme';
+import { useThemeColors } from '../hooks/useThemeColors';
+import { getReservas, ReservaWithRelations } from '../lib/reservas';
+import { getComplejos, ComplejoWithFotos } from '../lib/complejos';
+import { getCanchas, CanchaWithRelations } from '../lib/canchas';
+import { useFocusEffect } from 'expo-router';
+import {
+  getRModalBackdropProps,
+  getRModalCenterSheetStyle,
+  getRModalCardLayout,
+  rModalAnimLeft,
+} from '../lib/rnModalPresets';
 
 const { width } = Dimensions.get('window');
 const cardWidth = (width - Spacing.md * 2 - Spacing.sm) / 2;
 
-// Datos ficticios
-const mockData = {
-  stats: {
-    totalComplejos: 2,
-    totalCanchas: 8,
-    reservasHoy: 12,
-    reservasPendientes: 5,
-    ingresosMes: 45000,
-  },
-  complejos: [
-    {
-      id: 1,
-      nombre: 'Complejo Deportivo Central',
-      direccion: 'Av. Principal 123',
-      canchas: 5,
-      estado: 'Activo',
-    },
-    {
-      id: 2,
-      nombre: 'Canchas del Norte',
-      direccion: 'Calle Norte 456',
-      canchas: 3,
-      estado: 'Activo',
-    },
-  ],
-  canchas: [
-    {
-      id: 1,
-      nombre: 'Cancha 1 - Fútbol 11',
-      complejo: 'Complejo Deportivo Central',
-      tipo: 'Fútbol 11',
-      estado: 'Disponible',
-      reservasHoy: 4,
-    },
-    {
-      id: 2,
-      nombre: 'Cancha 2 - Fútbol 7',
-      complejo: 'Complejo Deportivo Central',
-      tipo: 'Fútbol 7',
-      estado: 'Ocupada',
-      reservasHoy: 3,
-    },
-    {
-      id: 3,
-      nombre: 'Cancha 3 - Fútbol 5',
-      complejo: 'Complejo Deportivo Central',
-      tipo: 'Fútbol 5',
-      estado: 'Disponible',
-      reservasHoy: 2,
-    },
-    {
-      id: 4,
-      nombre: 'Cancha 4 - Fútbol 11',
-      complejo: 'Complejo Deportivo Central',
-      tipo: 'Fútbol 11',
-      estado: 'Mantenimiento',
-      reservasHoy: 0,
-    },
-    {
-      id: 5,
-      nombre: 'Cancha 5 - Fútbol 7',
-      complejo: 'Complejo Deportivo Central',
-      tipo: 'Fútbol 7',
-      estado: 'Disponible',
-      reservasHoy: 1,
-    },
-    {
-      id: 6,
-      nombre: 'Cancha A - Fútbol 5',
-      complejo: 'Canchas del Norte',
-      tipo: 'Fútbol 5',
-      estado: 'Disponible',
-      reservasHoy: 2,
-    },
-    {
-      id: 7,
-      nombre: 'Cancha B - Fútbol 7',
-      complejo: 'Canchas del Norte',
-      tipo: 'Fútbol 7',
-      estado: 'Ocupada',
-      reservasHoy: 3,
-    },
-    {
-      id: 8,
-      nombre: 'Cancha C - Fútbol 11',
-      complejo: 'Canchas del Norte',
-      tipo: 'Fútbol 11',
-      estado: 'Disponible',
-      reservasHoy: 1,
-    },
-  ],
-  reservas: [
-    {
-      id: 1,
-      cancha: 'Cancha 1 - Fútbol 11',
-      complejo: 'Complejo Deportivo Central',
-      cliente: 'Juan Pérez',
-      fecha: '2024-01-15',
-      hora: '18:00',
-      estado: 'Confirmada',
-      monto: 15000,
-    },
-    {
-      id: 2,
-      cancha: 'Cancha 2 - Fútbol 7',
-      complejo: 'Complejo Deportivo Central',
-      cliente: 'María González',
-      fecha: '2024-01-15',
-      hora: '19:00',
-      estado: 'Pendiente',
-      monto: 12000,
-    },
-    {
-      id: 3,
-      cancha: 'Cancha B - Fútbol 7',
-      complejo: 'Canchas del Norte',
-      cliente: 'Carlos Rodríguez',
-      fecha: '2024-01-15',
-      hora: '20:00',
-      estado: 'Confirmada',
-      monto: 12000,
-    },
-    {
-      id: 4,
-      cancha: 'Cancha 3 - Fútbol 5',
-      complejo: 'Complejo Deportivo Central',
-      cliente: 'Ana Martínez',
-      fecha: '2024-01-16',
-      hora: '17:00',
-      estado: 'Confirmada',
-      monto: 10000,
-    },
-    {
-      id: 5,
-      cancha: 'Cancha A - Fútbol 5',
-      complejo: 'Canchas del Norte',
-      cliente: 'Luis Fernández',
-      fecha: '2024-01-16',
-      hora: '18:00',
-      estado: 'Pendiente',
-      monto: 10000,
-    },
-  ],
-};
+interface FiltrosInforme {
+  fechaInicio: string;
+  fechaFin: string;
+  horaInicio: string;
+  horaFin: string;
+  complejoIds: string[];
+  canchaIds: string[];
+}
 
 export default function DashboardAdmin() {
   const router = useRouter();
+  const colors = useThemeColors();
+  const rBackdrop = getRModalBackdropProps();
+  const rCenter = getRModalCenterSheetStyle();
+  const { modalMaxHeight, modalScrollAreaMaxHeight } = getRModalCardLayout();
+  const [loading, setLoading] = useState(true);
+  const [loadingInforme, setLoadingInforme] = useState(false);
+  const [stats, setStats] = useState({
+    totalComplejos: 0,
+    totalCanchas: 0,
+    reservasHoy: 0,
+    reservasPendientes: 0,
+    ingresosMes: 0,
+  });
+  const [complejos, setComplejos] = useState<ComplejoWithFotos[]>([]);
+  const [canchas, setCanchas] = useState<CanchaWithRelations[]>([]);
+  const [reservasInforme, setReservasInforme] = useState<ReservaWithRelations[]>([]);
+  const [showFiltros, setShowFiltros] = useState(false);
+  const [filtros, setFiltros] = useState<FiltrosInforme>({
+    fechaInicio: new Date().toISOString().split('T')[0],
+    fechaFin: new Date().toISOString().split('T')[0],
+    horaInicio: '00:00',
+    horaFin: '23:59',
+    complejoIds: [],
+    canchaIds: [],
+  });
+  const [complejosSeleccionados, setComplejosSeleccionados] = useState<string[]>([]);
+  const [canchasSeleccionadas, setCanchasSeleccionadas] = useState<string[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [complejosData, canchasData, reservasHoy, reservasPendientes] = await Promise.all([
+        getComplejos(),
+        getCanchas(undefined, true),
+        loadReservasHoy(),
+        loadReservasPendientes(),
+      ]);
+
+      setComplejos(complejosData);
+      setCanchas(canchasData);
+      setStats({
+        totalComplejos: complejosData.length,
+        totalCanchas: canchasData.length,
+        reservasHoy: reservasHoy.length,
+        reservasPendientes: reservasPendientes.length,
+        ingresosMes: await calcularIngresosMes(),
+      });
+    } catch (error: any) {
+      console.error('Error al cargar datos:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadReservasHoy = async () => {
+    try {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const finHoy = new Date();
+      finHoy.setHours(23, 59, 59, 999);
+      return await getReservas(hoy.toISOString(), finHoy.toISOString());
+    } catch (error) {
+      console.error('Error al cargar reservas de hoy:', error);
+      return [];
+    }
+  };
+
+  const loadReservasPendientes = async () => {
+    try {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const finMes = new Date();
+      finMes.setMonth(finMes.getMonth() + 1);
+      finMes.setDate(0);
+      finMes.setHours(23, 59, 59, 999);
+      const reservas = await getReservas(hoy.toISOString(), finMes.toISOString());
+      return reservas.filter((r) => r.estado === 'pendiente');
+    } catch (error) {
+      console.error('Error al cargar reservas pendientes:', error);
+      return [];
+    }
+  };
+
+  const calcularIngresosMes = async () => {
+    try {
+      const inicioMes = new Date();
+      inicioMes.setDate(1);
+      inicioMes.setHours(0, 0, 0, 0);
+      const finMes = new Date();
+      finMes.setMonth(finMes.getMonth() + 1);
+      finMes.setDate(0);
+      finMes.setHours(23, 59, 59, 999);
+      
+      const reservas = await getReservas(inicioMes.toISOString(), finMes.toISOString());
+      const reservasCompletadas = reservas.filter((r) => r.estado === 'completada');
+      
+      // Calcular ingresos basado en precio de canchas
+      let total = 0;
+      for (const reserva of reservasCompletadas) {
+        if (reserva.cancha) {
+          const cancha = canchas.find((c) => c.id === reserva.cancha_id);
+          if (cancha) {
+            total += cancha.precio_por_hora || 0;
+          }
+        }
+      }
+      return total;
+    } catch (error) {
+      console.error('Error al calcular ingresos:', error);
+      return 0;
+    }
+  };
+
+  const generarInforme = async () => {
+    try {
+      setLoadingInforme(true);
+      
+      // Construir rango de fechas con horas
+      const fechaInicio = new Date(`${filtros.fechaInicio}T${filtros.horaInicio}:00`);
+      const fechaFin = new Date(`${filtros.fechaFin}T${filtros.horaFin}:59`);
+      
+      // Obtener reservas con filtros
+      let reservas = await getReservas(fechaInicio.toISOString(), fechaFin.toISOString());
+      
+      // Filtrar por complejos
+      if (filtros.complejoIds.length > 0) {
+        reservas = reservas.filter((r) => {
+          const complejoId = r.cancha?.complejo?.id;
+          return complejoId && filtros.complejoIds.includes(complejoId);
+        });
+      }
+      
+      // Filtrar por canchas
+      if (filtros.canchaIds.length > 0) {
+        reservas = reservas.filter((r) => filtros.canchaIds.includes(r.cancha_id));
+      }
+      
+      setReservasInforme(reservas);
+      setShowFiltros(false);
+    } catch (error: any) {
+      console.error('Error al generar informe:', error);
+    } finally {
+      setLoadingInforme(false);
+    }
+  };
+
+  const exportarPDF = async () => {
+    try {
+      if (reservasInforme.length === 0) {
+        alert('No hay datos para exportar. Por favor genera un informe primero.');
+        return;
+      }
+
+      // Importar expo-print dinámicamente
+      let Print: typeof import('expo-print');
+      try {
+        Print = await import('expo-print');
+      } catch (error) {
+        alert('La funcionalidad de exportación a PDF no está disponible. Por favor, ejecuta "npx expo prebuild" y luego "npx expo run:android" o "npx expo run:ios" para compilar el módulo nativo.');
+        return;
+      }
+
+      // Calcular totalizaciones
+      const totalReservas = reservasInforme.length;
+      const reservasCompletadas = reservasInforme.filter((r) => r.estado === 'completada');
+      const reservasPendientes = reservasInforme.filter((r) => r.estado === 'pendiente');
+      const reservasCanceladas = reservasInforme.filter((r) => r.estado === 'cancelada');
+      
+      let ingresosTotales = 0;
+      const ingresosPorCancha: Record<string, number> = {};
+      
+      reservasCompletadas.forEach((reserva) => {
+        const cancha = canchas.find((c) => c.id === reserva.cancha_id);
+        if (cancha) {
+          const monto = cancha.precio_por_hora || 0;
+          ingresosTotales += monto;
+          if (!ingresosPorCancha[reserva.cancha_id]) {
+            ingresosPorCancha[reserva.cancha_id] = 0;
+          }
+          ingresosPorCancha[reserva.cancha_id] += monto;
+        }
+      });
+
+      // Generar HTML para el PDF
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+              color: #333;
+            }
+            h1 {
+              color: #00C56E;
+              border-bottom: 2px solid #00C56E;
+              padding-bottom: 10px;
+            }
+            h2 {
+              color: #666;
+              margin-top: 30px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 20px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #00C56E;
+              color: white;
+            }
+            tr:nth-child(even) {
+              background-color: #f2f2f2;
+            }
+            .total {
+              font-weight: bold;
+              font-size: 1.2em;
+              margin-top: 20px;
+            }
+            .summary {
+              background-color: #f9f9f9;
+              padding: 15px;
+              border-radius: 5px;
+              margin-bottom: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Informe de Reservas</h1>
+          
+          <div class="summary">
+            <h2>Resumen</h2>
+            <p><strong>Período:</strong> ${new Date(filtros.fechaInicio).toLocaleDateString('es-HN')} - ${new Date(filtros.fechaFin).toLocaleDateString('es-HN')}</p>
+            <p><strong>Horario:</strong> ${filtros.horaInicio} - ${filtros.horaFin}</p>
+            <p><strong>Total de Reservas:</strong> ${totalReservas}</p>
+            <p><strong>Completadas:</strong> ${reservasCompletadas.length}</p>
+            <p><strong>Pendientes:</strong> ${reservasPendientes.length}</p>
+            <p><strong>Canceladas:</strong> ${reservasCanceladas.length}</p>
+            <p><strong>Ingresos Totales:</strong> L ${ingresosTotales.toLocaleString()}</p>
+          </div>
+
+          <h2>Detalle de Reservas</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha/Hora</th>
+                <th>Cancha</th>
+                <th>Complejo</th>
+                <th>Estado</th>
+                <th>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${reservasInforme.map((reserva) => {
+                const fecha = new Date(reserva.fecha_hora);
+                const cancha = canchas.find((c) => c.id === reserva.cancha_id);
+                const monto = cancha?.precio_por_hora || 0;
+                return `
+                  <tr>
+                    <td>${fecha.toLocaleString('es-HN')}</td>
+                    <td>${reserva.cancha?.nombre || 'N/A'}</td>
+                    <td>${reserva.cancha?.complejo?.nombre || 'N/A'}</td>
+                    <td>${reserva.estado}</td>
+                    <td>L ${monto.toLocaleString()}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+
+          <div class="total">
+            <p><strong>Total de Ingresos:</strong> L ${ingresosTotales.toLocaleString()}</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Generar PDF
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      // Intentar compartir el PDF
+      try {
+        const Sharing = await import('expo-sharing');
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri);
+        } else {
+          alert(`PDF generado en: ${uri}`);
+        }
+      } catch (error) {
+        // Si expo-sharing no está disponible, solo mostrar la ruta
+        alert(`PDF generado en: ${uri}`);
+      }
+    } catch (error: any) {
+      console.error('Error al exportar PDF:', error);
+      alert('Error al exportar PDF: ' + error.message);
+    }
+  };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('es-CL', {
+    return new Intl.NumberFormat('es-HN', {
       style: 'currency',
-      currency: 'CLP',
+      currency: 'HNL',
       minimumFractionDigits: 0,
     }).format(amount);
   };
 
-  const getEstadoColor = (estado: string) => {
-    switch (estado) {
-      case 'Activo':
-      case 'Disponible':
-      case 'Confirmada':
-        return Colors.success;
-      case 'Ocupada':
-        return Colors.warning;
-      case 'Mantenimiento':
-      case 'Pendiente':
-        return Colors.error;
-      default:
-        return Colors.textSecondary;
-    }
+  const toggleComplejo = (complejoId: string) => {
+    setComplejosSeleccionados((prev) =>
+      prev.includes(complejoId)
+        ? prev.filter((id) => id !== complejoId)
+        : [...prev, complejoId]
+    );
   };
 
+  const toggleCancha = (canchaId: string) => {
+    setCanchasSeleccionadas((prev) =>
+      prev.includes(canchaId)
+        ? prev.filter((id) => id !== canchaId)
+        : [...prev, canchaId]
+    );
+  };
+
+  useEffect(() => {
+    setFiltros((prev) => ({
+      ...prev,
+      complejoIds: complejosSeleccionados,
+      canchaIds: canchasSeleccionadas,
+    }));
+  }, [complejosSeleccionados, canchasSeleccionadas]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -197,8 +403,8 @@ export default function DashboardAdmin() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Bienvenido</Text>
-            <Text style={styles.userName}>Administrador</Text>
+            <Text style={[styles.greeting, { color: colors.textSecondary }]}>Bienvenido</Text>
+            <Text style={[styles.userName, { color: colors.text }]}>Administrador</Text>
           </View>
           <TouchableOpacity style={styles.notificationButton}>
             <Ionicons name="notifications-outline" size={22} color={Colors.primary} />
@@ -210,152 +416,271 @@ export default function DashboardAdmin() {
 
         {/* Estadísticas */}
         <View style={styles.statsContainer}>
-          <Text style={styles.sectionTitle}>Resumen</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Resumen</Text>
           <View style={styles.statsGrid}>
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: Colors.primary + '20' }]}>
-                <Ionicons name="business-outline" size={20} color={Colors.primary} />
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{stats.totalComplejos}</Text>
+              <View style={styles.statFooter}>
+                <Ionicons name="business-outline" size={16} color={Colors.primary} />
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Complejos</Text>
               </View>
-              <Text style={styles.statValue}>{mockData.stats.totalComplejos}</Text>
-              <Text style={styles.statLabel}>Complejos</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: Colors.secondary + '20' }]}>
-                <Ionicons name="football-outline" size={20} color={Colors.secondary} />
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{stats.totalCanchas}</Text>
+              <View style={styles.statFooter}>
+                <Ionicons name="football-outline" size={16} color={Colors.secondary} />
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Canchas</Text>
               </View>
-              <Text style={styles.statValue}>{mockData.stats.totalCanchas}</Text>
-              <Text style={styles.statLabel}>Canchas</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: Colors.success + '20' }]}>
-                <Ionicons name="calendar-outline" size={20} color={Colors.success} />
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{stats.reservasHoy}</Text>
+              <View style={styles.statFooter}>
+                <Ionicons name="calendar-outline" size={16} color={Colors.success} />
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Hoy</Text>
               </View>
-              <Text style={styles.statValue}>{mockData.stats.reservasHoy}</Text>
-              <Text style={styles.statLabel}>Hoy</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: Colors.warning + '20' }]}>
-                <Ionicons name="time-outline" size={20} color={Colors.warning} />
+            <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{stats.reservasPendientes}</Text>
+              <View style={styles.statFooter}>
+                <Ionicons name="time-outline" size={16} color={Colors.warning} />
+                <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pendientes</Text>
               </View>
-              <Text style={styles.statValue}>{mockData.stats.reservasPendientes}</Text>
-              <Text style={styles.statLabel}>Pendientes</Text>
             </View>
           </View>
 
           {/* Ingresos del mes */}
           <View style={styles.incomeCard}>
             <View style={styles.incomeHeader}>
-              <Ionicons name="cash-outline" size={24} color={Colors.textInverse} />
-              <Text style={styles.incomeLabel}>Ingresos del mes</Text>
+              <Ionicons name="cash-outline" size={24} color="#FFFFFF" />
+              <Text style={[styles.incomeLabel, { color: '#FFFFFF' }]}>Ingresos del mes</Text>
             </View>
-            <Text style={styles.incomeValue}>{formatCurrency(mockData.stats.ingresosMes)}</Text>
+            <Text style={[styles.incomeValue, { color: '#FFFFFF' }]}>{formatCurrency(stats.ingresosMes)}</Text>
           </View>
         </View>
 
-        {/* Complejos */}
+        {/* Sección de Informes */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Mis Complejos</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/complejos')}>
-              <Text style={styles.seeAllText}>Ver todos</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Informes</Text>
+            <TouchableOpacity onPress={() => setShowFiltros(true)}>
+              <Ionicons name="filter-outline" size={20} color={Colors.primary} />
             </TouchableOpacity>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll}>
-            {mockData.complejos.map((complejo) => (
-              <View key={complejo.id} style={styles.complejoCard}>
-                <View style={styles.complejoHeader}>
-                  <View style={styles.complejoIcon}>
-                    <Ionicons name="business" size={24} color={Colors.primary} />
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getEstadoColor(complejo.estado) + '20' }]}>
-                    <Text style={[styles.statusText, { color: getEstadoColor(complejo.estado) }]}>
-                      {complejo.estado}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.complejoName}>{complejo.nombre}</Text>
-                <Text style={styles.complejoAddress}>{complejo.direccion}</Text>
-                <View style={styles.complejoFooter}>
-                  <Ionicons name="football-outline" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.complejoCanchas}>{complejo.canchas} canchas</Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
 
-        {/* Canchas */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Canchas</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>Ver todas</Text>
-            </TouchableOpacity>
-          </View>
-          {mockData.canchas.slice(0, 4).map((cancha) => (
-            <TouchableOpacity key={cancha.id} style={styles.canchaCard}>
-              <View style={styles.canchaInfo}>
-                <Text style={styles.canchaName}>{cancha.nombre}</Text>
-                <Text style={styles.canchaComplejo}>{cancha.complejo}</Text>
-                <View style={styles.canchaMeta}>
-                  <Text style={styles.canchaType}>{cancha.tipo}</Text>
-                  <View style={styles.canchaReservas}>
-                    <Ionicons name="calendar-outline" size={12} color={Colors.textSecondary} />
-                    <Text style={styles.canchaReservasText}>{cancha.reservasHoy} hoy</Text>
-                  </View>
+          {reservasInforme.length > 0 ? (
+            <View style={[styles.informeContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.informeTitle, { color: colors.text }]}>
+                Informe Generado ({reservasInforme.length} reservas)
+              </Text>
+              <View style={styles.informeStats}>
+                <View style={styles.informeStat}>
+                  <Text style={[styles.informeStatLabel, { color: colors.textSecondary }]}>Completadas</Text>
+                  <Text style={[styles.informeStatValue, { color: colors.text }]}>
+                    {reservasInforme.filter((r) => r.estado === 'completada').length}
+                  </Text>
                 </View>
-              </View>
-              <View style={[styles.canchaEstado, { backgroundColor: getEstadoColor(cancha.estado) + '20' }]}>
-                <Text style={[styles.canchaEstadoText, { color: getEstadoColor(cancha.estado) }]}>
-                  {cancha.estado}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Reservas Recientes */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Reservas Recientes</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>Ver todas</Text>
-            </TouchableOpacity>
-          </View>
-          {mockData.reservas.map((reserva) => (
-            <View key={reserva.id} style={styles.reservaCard}>
-              <View style={styles.reservaHeader}>
-                <View>
-                  <Text style={styles.reservaCancha}>{reserva.cancha}</Text>
-                  <Text style={styles.reservaComplejo}>{reserva.complejo}</Text>
+                <View style={styles.informeStat}>
+                  <Text style={[styles.informeStatLabel, { color: colors.textSecondary }]}>Pendientes</Text>
+                  <Text style={[styles.informeStatValue, { color: colors.text }]}>
+                    {reservasInforme.filter((r) => r.estado === 'pendiente').length}
+                  </Text>
                 </View>
-                <View style={[styles.reservaEstado, { backgroundColor: getEstadoColor(reserva.estado) + '20' }]}>
-                  <Text style={[styles.reservaEstadoText, { color: getEstadoColor(reserva.estado) }]}>
-                    {reserva.estado}
+                <View style={styles.informeStat}>
+                  <Text style={[styles.informeStatLabel, { color: colors.textSecondary }]}>Canceladas</Text>
+                  <Text style={[styles.informeStatValue, { color: colors.text }]}>
+                    {reservasInforme.filter((r) => r.estado === 'cancelada').length}
                   </Text>
                 </View>
               </View>
-              <View style={styles.reservaDetails}>
-                <View style={styles.reservaDetail}>
-                  <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.reservaDetailText}>{reserva.cliente}</Text>
-                </View>
-                <View style={styles.reservaDetail}>
-                  <Ionicons name="calendar-outline" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.reservaDetailText}>{reserva.fecha} {reserva.hora}</Text>
-                </View>
-                <View style={styles.reservaDetail}>
-                  <Ionicons name="cash-outline" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.reservaAmount}>{formatCurrency(reserva.monto)}</Text>
-                </View>
-              </View>
+              <TouchableOpacity
+                style={styles.exportButton}
+                onPress={exportarPDF}
+                disabled={loadingInforme}
+              >
+                <Ionicons name="download-outline" size={20} color={Colors.textInverse} />
+                <Text style={styles.exportButtonText}>Exportar PDF</Text>
+              </TouchableOpacity>
             </View>
-          ))}
+          ) : (
+            <View style={[styles.emptyInforme, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="document-text-outline" size={48} color={colors.textSecondary} />
+              <Text style={[styles.emptyInformeText, { color: colors.textSecondary }]}>
+                No hay informe generado. Usa el filtro para generar uno.
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      {/* Modal de Filtros */}
+      <RNModal
+        {...rBackdrop}
+        {...rModalAnimLeft}
+        isVisible={showFiltros}
+        onBackdropPress={() => setShowFiltros(false)}
+        onBackButtonPress={() => setShowFiltros(false)}
+        avoidKeyboard
+        style={rCenter}
+      >
+        <SafeAreaView style={styles.modalSheetOuter} edges={['top', 'bottom']}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, maxHeight: modalMaxHeight }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Filtros de Informe</Text>
+              <TouchableOpacity onPress={() => setShowFiltros(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={{ maxHeight: modalScrollAreaMaxHeight }}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              {/* Fechas */}
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Fecha Inicio</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
+                  value={filtros.fechaInicio}
+                  onChangeText={(text) => setFiltros((prev) => ({ ...prev, fechaInicio: text }))}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Fecha Fin</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
+                  value={filtros.fechaFin}
+                  onChangeText={(text) => setFiltros((prev) => ({ ...prev, fechaFin: text }))}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+
+              {/* Horas */}
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Hora Inicio</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
+                  value={filtros.horaInicio}
+                  onChangeText={(text) => setFiltros((prev) => ({ ...prev, horaInicio: text }))}
+                  placeholder="HH:MM"
+                />
+              </View>
+
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Hora Fin</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.text }]}
+                  value={filtros.horaFin}
+                  onChangeText={(text) => setFiltros((prev) => ({ ...prev, horaFin: text }))}
+                  placeholder="HH:MM"
+                />
+              </View>
+
+              {/* Complejos */}
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Complejos</Text>
+                <ScrollView style={styles.filterScroll} nestedScrollEnabled>
+                  {complejos.map((complejo) => (
+                    <TouchableOpacity
+                      key={complejo.id}
+                      style={[
+                        styles.filterOption,
+                        {
+                          backgroundColor: complejosSeleccionados.includes(complejo.id)
+                            ? Colors.primary + '20'
+                            : colors.background,
+                          borderColor: complejosSeleccionados.includes(complejo.id)
+                            ? Colors.primary
+                            : colors.border,
+                        },
+                      ]}
+                      onPress={() => toggleComplejo(complejo.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterOptionText,
+                          {
+                            color: complejosSeleccionados.includes(complejo.id)
+                              ? Colors.primary
+                              : colors.text,
+                          },
+                        ]}
+                      >
+                        {complejo.nombre}
+                      </Text>
+                      {complejosSeleccionados.includes(complejo.id) && (
+                        <Ionicons name="checkmark" size={20} color={Colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Canchas */}
+              <View style={styles.filterGroup}>
+                <Text style={[styles.filterLabel, { color: colors.text }]}>Canchas</Text>
+                <ScrollView style={styles.filterScroll} nestedScrollEnabled>
+                  {canchas.map((cancha) => (
+                    <TouchableOpacity
+                      key={cancha.id}
+                      style={[
+                        styles.filterOption,
+                        {
+                          backgroundColor: canchasSeleccionadas.includes(cancha.id)
+                            ? Colors.primary + '20'
+                            : colors.background,
+                          borderColor: canchasSeleccionadas.includes(cancha.id)
+                            ? Colors.primary
+                            : colors.border,
+                        },
+                      ]}
+                      onPress={() => toggleCancha(cancha.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterOptionText,
+                          {
+                            color: canchasSeleccionadas.includes(cancha.id)
+                              ? Colors.primary
+                              : colors.text,
+                          },
+                        ]}
+                      >
+                        {cancha.nombre || `Cancha ${cancha.id.slice(0, 8)}`}
+                      </Text>
+                      {canchasSeleccionadas.includes(cancha.id) && (
+                        <Ionicons name="checkmark" size={20} color={Colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <TouchableOpacity
+                style={styles.generateButton}
+                onPress={generarInforme}
+                disabled={loadingInforme}
+              >
+                {loadingInforme ? (
+                  <ActivityIndicator color={Colors.textInverse} />
+                ) : (
+                  <>
+                    <Ionicons name="document-text-outline" size={20} color={Colors.textInverse} />
+                    <Text style={styles.generateButtonText}>Generar Informe</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </RNModal>
     </SafeAreaView>
   );
 }
@@ -363,13 +688,17 @@ export default function DashboardAdmin() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingBottom: Spacing.xl,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -381,12 +710,10 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: Typography.fontSize.sm,
-    color: Colors.textSecondary,
   },
   userName: {
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.text,
     marginTop: Spacing.xs,
   },
   notificationButton: {
@@ -427,12 +754,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: Typography.fontSize.lg,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.text,
-  },
-  seeAllText: {
-    fontSize: Typography.fontSize.sm,
-    color: Colors.primary,
-    fontWeight: Typography.fontWeight.medium,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -442,29 +763,28 @@ const styles = StyleSheet.create({
   },
   statCard: {
     width: cardWidth,
-    backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.sm,
     marginBottom: Spacing.sm,
-    ...Shadows.sm,
-  },
-  statIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.xs,
+    ...Shadows.sm,
   },
   statValue: {
-    fontSize: Typography.fontSize.xl,
+    fontSize: Typography.fontSize.xxxl,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
+    marginBottom: Spacing.sm,
+    textAlign: 'center',
+  },
+  statFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
   },
   statLabel: {
     fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
   },
   incomeCard: {
     backgroundColor: Colors.primary,
@@ -480,179 +800,139 @@ const styles = StyleSheet.create({
   },
   incomeLabel: {
     fontSize: Typography.fontSize.sm,
-    color: Colors.textInverse,
     marginLeft: Spacing.xs,
     opacity: 0.9,
   },
   incomeValue: {
     fontSize: Typography.fontSize.xxl,
     fontWeight: Typography.fontWeight.bold,
-    color: Colors.textInverse,
   },
-  horizontalScroll: {
-    paddingLeft: Spacing.md,
-  },
-  complejoCard: {
-    width: 200,
-    backgroundColor: Colors.surface,
+  informeContainer: {
+    marginHorizontal: Spacing.md,
+    padding: Spacing.md,
     borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
-    marginRight: Spacing.sm,
+    borderWidth: 1,
     ...Shadows.sm,
   },
-  complejoHeader: {
+  informeTitle: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
+    marginBottom: Spacing.sm,
+  },
+  informeStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
+    marginBottom: Spacing.md,
+  },
+  informeStat: {
     alignItems: 'center',
+  },
+  informeStatLabel: {
+    fontSize: Typography.fontSize.xs,
     marginBottom: Spacing.xs,
   },
-  complejoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primary + '20',
+  informeStatValue: {
+    fontSize: Typography.fontSize.lg,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  exportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
   },
-  statusBadge: {
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  statusText: {
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  complejoName: {
+  exportButtonText: {
+    color: Colors.textInverse,
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.semibold,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
   },
-  complejoAddress: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
-  },
-  complejoFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: Spacing.xs,
-  },
-  complejoCanchas: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    marginLeft: Spacing.xs,
-  },
-  canchaCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
+  emptyInforme: {
     marginHorizontal: Spacing.md,
-    marginBottom: Spacing.xs,
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
     ...Shadows.sm,
   },
-  canchaInfo: {
-    flex: 1,
-  },
-  canchaName: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  canchaComplejo: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    marginBottom: Spacing.xs,
-  },
-  canchaMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  canchaType: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  canchaReservas: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  canchaReservasText: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    marginLeft: Spacing.xs,
-  },
-  canchaEstado: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-  },
-  canchaEstadoText: {
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  reservaCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
-    marginHorizontal: Spacing.md,
-    marginBottom: Spacing.xs,
-    ...Shadows.sm,
-  },
-  reservaHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.xs,
-  },
-  reservaCancha: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  reservaComplejo: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-  },
-  reservaEstado: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-  },
-  reservaEstadoText: {
-    fontSize: Typography.fontSize.xs,
-    fontWeight: Typography.fontWeight.medium,
-  },
-  reservaDetails: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  reservaDetail: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  reservaDetailText: {
-    fontSize: Typography.fontSize.xs,
-    color: Colors.textSecondary,
-    marginLeft: Spacing.xs,
-  },
-  reservaAmount: {
+  emptyInformeText: {
     fontSize: Typography.fontSize.sm,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+  },
+  modalSheetOuter: {
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
+  },
+  modalCard: {
+    borderRadius: BorderRadius.lg,
+    width: '100%',
+    overflow: 'hidden',
+    flexDirection: 'column',
+    ...Shadows.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    borderBottomWidth: 1,
+    flexShrink: 0,
+  },
+  modalTitle: {
+    fontSize: Typography.fontSize.xl,
+    fontWeight: Typography.fontWeight.bold,
+  },
+  modalScrollContent: {
+    padding: Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+  filterGroup: {
+    marginBottom: Spacing.lg,
+  },
+  filterLabel: {
+    fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.semibold,
-    color: Colors.primary,
-    marginLeft: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  filterInput: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    fontSize: Typography.fontSize.md,
+  },
+  filterScroll: {
+    maxHeight: 150,
+  },
+  filterOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.xs,
+  },
+  filterOptionText: {
+    fontSize: Typography.fontSize.sm,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  generateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
+    marginTop: Spacing.md,
+  },
+  generateButtonText: {
+    color: Colors.textInverse,
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
   },
 });
-

@@ -7,13 +7,19 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Modal,
 } from 'react-native';
+import RNModal from 'react-native-modal';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GoogleMaps, AppleMaps } from 'expo-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../constants/theme';
+import {
+  getRModalBackdropProps,
+  getRModalBottomSheetStyle,
+  rModalAnimSheet,
+} from '../lib/rnModalPresets';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -30,6 +36,8 @@ export default function LocationPicker({
   onLocationSelect,
   onCancel,
 }: LocationPickerProps) {
+  const rBackdrop = getRModalBackdropProps();
+  const rBottom = getRModalBottomSheetStyle();
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [mapRegion, setMapRegion] = useState({
@@ -47,7 +55,20 @@ export default function LocationPicker({
     try {
       setLoading(true);
 
-      // Siempre intentar obtener la ubicación actual primero
+      // Si hay coordenadas iniciales (estamos editando), usarlas primero
+      if (initialLat && initialLng) {
+        setLocation({ lat: initialLat, lng: initialLng });
+        setMapRegion({
+          latitude: initialLat,
+          longitude: initialLng,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Si no hay coordenadas iniciales (estamos creando), usar ubicación actual del usuario
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         try {
@@ -72,20 +93,7 @@ export default function LocationPicker({
         }
       }
 
-      // Si no se pudo obtener la ubicación actual, usar coordenadas iniciales si existen
-      if (initialLat && initialLng) {
-        setLocation({ lat: initialLat, lng: initialLng });
-        setMapRegion({
-          latitude: initialLat,
-          longitude: initialLng,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        });
-        setLoading(false);
-        return;
-      }
-
-      // Si no hay coordenadas iniciales ni ubicación actual, usar ubicación por defecto
+      // Si no se pudo obtener la ubicación actual y no hay coordenadas iniciales
       Alert.alert(
         'Permisos de ubicación',
         'Se necesitan permisos de ubicación para usar esta función. Puedes seleccionar una ubicación manualmente en el mapa.',
@@ -154,14 +162,16 @@ export default function LocationPicker({
   };
 
   return (
-    <Modal
-      visible={true}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onCancel}
+    <RNModal
+      {...rBackdrop}
+      {...rModalAnimSheet}
+      isVisible
+      onBackdropPress={onCancel}
+      onBackButtonPress={onCancel}
+      style={rBottom}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.container}>
+      <SafeAreaView style={styles.modalBottomWidth} edges={['bottom']}>
+        <View style={styles.sheetInner}>
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={Colors.primary} />
@@ -278,23 +288,22 @@ export default function LocationPicker({
             </>
           )}
         </View>
-      </View>
-    </Modal>
+      </SafeAreaView>
+    </RNModal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+  modalBottomWidth: {
+    width: '100%',
   },
-  container: {
+  sheetInner: {
+    width: '100%',
     height: SCREEN_HEIGHT * 0.7,
-    backgroundColor: Colors.background,
     borderTopLeftRadius: BorderRadius.lg,
     borderTopRightRadius: BorderRadius.lg,
     overflow: 'hidden',
+    backgroundColor: Colors.background,
   },
   loadingContainer: {
     flex: 1,
