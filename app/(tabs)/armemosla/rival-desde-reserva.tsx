@@ -21,8 +21,9 @@ import { useThemeColors } from '../../../hooks/useThemeColors';
 export default function RivalDesdeReservaScreen() {
   const colors = useThemeColors();
   const [reservas, setReservas] = useState<ReservaWithRelations[]>([]);
-  const [reservaIdsConPartidoActivo, setReservaIdsConPartidoActivo] = useState<Set<string>>(
-    () => new Set()
+  /** Una fila por reserva (UNIQUE): estado del partido/publicación en la piscina. */
+  const [estadoPartidoPorReservaId, setEstadoPartidoPorReservaId] = useState<Record<string, string>>(
+    {}
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +114,7 @@ export default function RivalDesdeReservaScreen() {
         <View style={styles.headerTitles}>
           <Text style={[styles.title, { color: colors.text }]}>Buscar rival</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Elige una reserva pendiente
+            Publicá en la piscina solo las reservas donde aún necesitás rival
           </Text>
         </View>
       </View>
@@ -134,7 +135,16 @@ export default function RivalDesdeReservaScreen() {
         ) : (
           reservas.map((reserva) => {
             const { fecha, hora } = formatFechaHora(reserva.fecha_hora);
-            const yaTienePartido = reservaIdsConPartidoActivo.has(reserva.id);
+            const estadoPartido = estadoPartidoPorReservaId[reserva.id];
+            const bloqueadoPorPartido = Boolean(estadoPartido) && estadoPartido !== 'cancelado';
+            const labelCta =
+              !estadoPartido || estadoPartido === 'cancelado'
+                ? 'Publicar en la piscina'
+                : estadoPartido === 'abierto'
+                  ? 'Ya estás en la piscina'
+                  : estadoPartido === 'confirmado' || estadoPartido === 'en_negociacion'
+                    ? 'Rival confirmado'
+                    : 'Partido asociado';
             const cancha = reserva.cancha as any;
             const complejo = cancha?.complejo;
 
@@ -171,23 +181,23 @@ export default function RivalDesdeReservaScreen() {
                 <TouchableOpacity
                   style={[
                     styles.cta,
-                    { backgroundColor: yaTienePartido ? colors.borderLight : Colors.primary },
+                    { backgroundColor: bloqueadoPorPartido ? colors.borderLight : Colors.primary },
                   ]}
-                  onPress={() => !yaTienePartido && irBuscarRival(reserva.id)}
-                  disabled={yaTienePartido}
+                  onPress={() => !bloqueadoPorPartido && irBuscarRival(reserva.id)}
+                  disabled={bloqueadoPorPartido}
                 >
                   <Ionicons
                     name="people-outline"
                     size={20}
-                    color={yaTienePartido ? colors.textSecondary : Colors.textInverse}
+                    color={bloqueadoPorPartido ? colors.textSecondary : Colors.textInverse}
                   />
                   <Text
                     style={[
                       styles.ctaText,
-                      { color: yaTienePartido ? colors.textSecondary : Colors.textInverse },
+                      { color: bloqueadoPorPartido ? colors.textSecondary : Colors.textInverse },
                     ]}
                   >
-                    {yaTienePartido ? 'Ya tienes partido abierto' : 'Buscar rival'}
+                    {labelCta}
                   </Text>
                 </TouchableOpacity>
               </View>

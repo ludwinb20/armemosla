@@ -159,14 +159,6 @@ export async function obtenerPartidosAbiertos(
       .eq('estado', 'abierto')
       .neq('creador_id', user.id); // Excluir los propios
 
-    if (filtros?.fechaDesde) {
-      query = query.gte('reservas.fecha_hora', filtros.fechaDesde);
-    }
-
-    if (filtros?.fechaHasta) {
-      query = query.lte('reservas.fecha_hora', filtros.fechaHasta);
-    }
-
     if (filtros?.jugadoresMin) {
       query = query.gte('jugadores_necesarios', filtros.jugadoresMin);
     }
@@ -179,7 +171,25 @@ export async function obtenerPartidosAbiertos(
 
     if (error) throw error;
 
-    return (data || []) as PartidoAbiertoWithRelations[];
+    let list = (data || []) as PartidoAbiertoWithRelations[];
+
+    const ahora = Date.now();
+    list = list.filter((p) => {
+      const fh = p.reserva?.fecha_hora;
+      if (!fh) return false;
+      return new Date(fh).getTime() >= ahora - 60_000;
+    });
+
+    if (filtros?.fechaDesde) {
+      const t = new Date(filtros.fechaDesde).getTime();
+      list = list.filter((p) => new Date(p.reserva?.fecha_hora || 0).getTime() >= t);
+    }
+    if (filtros?.fechaHasta) {
+      const t = new Date(filtros.fechaHasta).getTime();
+      list = list.filter((p) => new Date(p.reserva?.fecha_hora || 0).getTime() <= t);
+    }
+
+    return list;
   } catch (error: any) {
     console.error('❌ [obtenerPartidosAbiertos] Error:', error);
     throw error;
@@ -357,10 +367,10 @@ export async function aceptarSolicitud(solicitudId: string): Promise<void> {
       .neq('id', solicitudId)
       .eq('estado', 'pendiente');
 
-    // Actualizar estado del partido a 'en_negociacion'
+    // Cierra la publicación en la piscina: el partido deja de estar "abierto".
     await supabase
       .from('partidos_abiertos')
-      .update({ estado: 'en_negociacion' })
+      .update({ estado: 'confirmado' })
       .eq('id', (solicitud.partido as any).id);
 
     // Enviar notificación al equipo solicitante
@@ -441,6 +451,7 @@ export async function rechazarSolicitud(solicitudId: string): Promise<void> {
 /**
  * Cancela un partido abierto
  */
+/** Quita la publicación de la piscina; permite volver a publicar la misma reserva (UNIQUE por reserva_id). */
 export async function cancelarPartidoAbierto(partidoId: string): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -448,7 +459,7 @@ export async function cancelarPartidoAbierto(partidoId: string): Promise<void> {
 
     const { error } = await supabase
       .from('partidos_abiertos')
-      .update({ estado: 'cancelado' })
+      .delete()
       .eq('id', partidoId)
       .eq('creador_id', user.id);
 

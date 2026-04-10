@@ -11,7 +11,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import {
+  GoogleSignin,
+  isErrorWithCode,
+  isSuccessResponse,
+} from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { router } from 'expo-router';
 import { Colors, Spacing, BorderRadius, Shadows } from '../constants/theme';
@@ -31,6 +35,26 @@ import {
 } from '../lib/rnModalPresets';
 
 const { width } = Dimensions.get('window');
+
+/** Android: DEVELOPER_ERROR — casi siempre SHA-1 del keystore no registrado en Firebase/Google Cloud. */
+const ANDROID_GOOGLE_DEVELOPER_ERROR = '10';
+
+function mensajeErrorGoogleSignIn(err: unknown): string {
+  const msg =
+    err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  if (
+    (isErrorWithCode(err) && String(err.code) === ANDROID_GOOGLE_DEVELOPER_ERROR) ||
+    /DEVELOPER_ERROR|Developer error/i.test(msg)
+  ) {
+    return (
+      'Google no reconoce esta compilación de la app (SHA-1). ' +
+      'En Firebase Console → tu app Android, agregá el SHA-1 de debug: ' +
+      'en la carpeta android ejecutá `gradlew signingReport` y copiá el SHA-1 de la variante debug. ' +
+      'Si instalás un build de EAS, agregá también el SHA-1 de release. Luego descargá de nuevo google-services.json.'
+    );
+  }
+  return msg || 'Error al iniciar sesión con Google';
+}
 
 export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
@@ -96,27 +120,43 @@ export default function LoginScreen() {
       setLoading(true);
 
       console.log('🔐 [signInWithGoogle] Verificando Play Services...');
-      await GoogleSignin.hasPlayServices();
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       console.log('✅ [signInWithGoogle] Play Services OK');
 
       console.log('🔐 [signInWithGoogle] Solicitando información de Google...');
-      const userInfo = await GoogleSignin.signIn();
+      const signInResult = await GoogleSignin.signIn();
+
+      if (!isSuccessResponse(signInResult)) {
+        console.log('🔐 [signInWithGoogle] Inicio cancelado o sin datos');
+        return;
+      }
+
+      const userInfo = signInResult.data;
       console.log('✅ [signInWithGoogle] Información de Google obtenida:', {
-        email: userInfo.data?.user?.email,
-        name: userInfo.data?.user?.name,
-        hasPhoto: !!userInfo.data?.user?.photo,
+        email: userInfo.user?.email,
+        name: userInfo.user?.name,
+        hasPhoto: !!userInfo.user?.photo,
       });
 
-      // Guardar avatar de Google en AsyncStorage
-      if (userInfo.data?.user?.photo) {
-        await AsyncStorage.setItem('google_avatar', userInfo.data.user.photo);
+      if (userInfo.user?.photo) {
+        await AsyncStorage.setItem('google_avatar', userInfo.user.photo);
         console.log('💾 [signInWithGoogle] Google avatar guardado en AsyncStorage');
+      }
+
+      let idToken = userInfo.idToken;
+      if (!idToken) {
+        const tokens = await GoogleSignin.getTokens();
+        idToken = tokens.idToken;
+      }
+      if (!idToken) {
+        showError('Error', 'No se pudo obtener el token de Google. Intentá de nuevo.');
+        return;
       }
 
       console.log('🔐 [signInWithGoogle] Autenticando con Supabase...');
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'google',
-        token: (userInfo as any).data.idToken!,
+        token: idToken,
       });
 
       if (error) {
@@ -143,14 +183,14 @@ export default function LoginScreen() {
           router.push('/select-user-type');
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ [signInWithGoogle] Error general:', {
-        message: err.message,
-        code: err.code,
+        message: err instanceof Error ? err.message : err,
+        code: isErrorWithCode(err) ? err.code : undefined,
         error: JSON.stringify(err),
-        stack: err.stack,
+        stack: err instanceof Error ? err.stack : undefined,
       });
-      showError('Error', err.message);
+      showError('Error con Google', mensajeErrorGoogleSignIn(err));
     } finally {
       console.log('🔐 [signInWithGoogle] Finalizando proceso de login');
       setLoading(false);

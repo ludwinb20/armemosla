@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import CustomAlert from '../../../components/CustomAlert';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { useTheme } from '../../../contexts/ThemeContext';
 import BusquedaMapa from '../../../components/BusquedaMapa';
+import FechaHoraNativePickers from '../../../components/FechaHoraNativePickers';
 import BusquedaLista from '../../../components/BusquedaLista';
 import {
   getRModalBackdropProps,
@@ -30,29 +31,15 @@ import {
   getRModalCardLayout,
   rModalAnimLeft,
 } from '../../../lib/rnModalPresets';
-
-const FechaHoraNativePickers = lazy(() => import('../../../components/FechaHoraNativePickers'));
+import { endOfBookingWindow } from '../../../lib/bookingWindow';
 
 /** Franjas de reserva en minutos (coinciden con turnos típicos de cancha). */
 const SLOT_MINUTES = 30;
 const DEFAULT_EVENING_HOUR = 18;
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 function roundToSlot(date: Date): Date {
   const ms = SLOT_MINUTES * 60 * 1000;
   return new Date(Math.round(date.getTime() / ms) * ms);
-}
-
-function endOfBookingWindow(): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + 90);
-  d.setHours(23, 59, 59, 999);
-  return d;
 }
 
 function defaultReservationDateTime(): Date {
@@ -109,8 +96,8 @@ function nextSaturdayEveningSlot(): Date {
 type VistaTipo = 'mapa' | 'lista';
 
 function BuscarScreen() {
+  const { theme: appTheme } = useTheme();
   const colors = useThemeColors();
-  const { theme: themeMode } = useTheme();
   const params = useLocalSearchParams<{ flow?: string | string[] }>();
   const flowRaw = Array.isArray(params.flow) ? params.flow[0] : params.flow;
   const flowConRival = flowRaw === 'con_rival';
@@ -263,7 +250,10 @@ function BuscarScreen() {
       setShowModalDetalle(false);
       buscar(); // Recargar para actualizar disponibilidad
       if (flowConRival && nuevaReserva?.id) {
-        showSuccess('Éxito', 'Reserva creada. Ahora podés publicar tu partido para buscar rival.');
+        showSuccess(
+          'Reserva lista',
+          'Siguiente paso: publicar tu partido en la piscina para que otros equipos puedan pedirte reto.'
+        );
         router.push({
           pathname: '/(tabs)/armemosla/buscar-rival',
           params: { openCrear: '1', reservaId: nuevaReserva.id },
@@ -329,11 +319,18 @@ function BuscarScreen() {
       showError('Fecha u hora inválida', 'Elegí un momento a partir de ahora.');
       return;
     }
+    const max = endOfBookingWindow();
+    if (v.getTime() > max.getTime()) {
+      showError(
+        'Fecha fuera de rango',
+        'Podés reservar como máximo con 3 meses de anticipación desde hoy.'
+      );
+      return;
+    }
     setFechaHora(v);
     setShowFechaHoraModal(false);
   };
 
-  const pickerTheme = themeMode === 'dark' ? 'dark' : 'light';
   const EVENING_HOURS = [17, 18, 19, 20, 21, 22];
 
   const handleCanchaPress = (cancha: CanchaBusqueda) => {
@@ -607,7 +604,7 @@ function BuscarScreen() {
         />
       )}
 
-      {/* Modal único: fecha + hora nativos (@react-native-community/datetimepicker) */}
+      {/* Modal único: fecha + hora (lista y grilla, sin módulos nativos) */}
       <RNModal
         {...rBackdrop}
         {...rModalAnimLeft}
@@ -631,7 +628,8 @@ function BuscarScreen() {
               showsVerticalScrollIndicator
             >
               <Text style={[styles.modalHint, { color: colors.textSecondary }]}>
-                Atajos arriba y selectores nativos abajo. Los turnos se redondean a {SLOT_MINUTES} minutos.
+                Elegí día y hora con los atajos o los selectores. Podés reservar hasta con 3 meses de
+                anticipación. Turnos cada {SLOT_MINUTES} minutos (6:00–23:00).
               </Text>
               <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Día rápido</Text>
               <View style={styles.chipRow}>
@@ -676,38 +674,23 @@ function BuscarScreen() {
               </View>
 
               <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Fecha</Text>
-              <Suspense
-                fallback={
-                  <View style={styles.pickerSuspenseFallback}>
-                    <ActivityIndicator size="small" color={Colors.primary} />
-                  </View>
-                }
-              >
-                <FechaHoraNativePickers
-                  part="date"
-                  draftDateTime={draftDateTime}
-                  setDraftDateTime={setDraftDateTime}
-                  pickerTheme={pickerTheme}
-                  shellStyle={[styles.pickerShell, { backgroundColor: colors.surface }]}
-                />
-              </Suspense>
+              <FechaHoraNativePickers
+                part="date"
+                draftDateTime={draftDateTime}
+                setDraftDateTime={setDraftDateTime}
+                pickerTheme={appTheme}
+                weekdayLabelColor={colors.text}
+                shellStyle={[styles.pickerShell, { backgroundColor: colors.surface }]}
+              />
 
               <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Hora</Text>
-              <Suspense
-                fallback={
-                  <View style={styles.pickerSuspenseFallback}>
-                    <ActivityIndicator size="small" color={Colors.primary} />
-                  </View>
-                }
-              >
-                <FechaHoraNativePickers
-                  part="time"
-                  draftDateTime={draftDateTime}
-                  setDraftDateTime={setDraftDateTime}
-                  pickerTheme={pickerTheme}
-                  shellStyle={[styles.pickerShell, { backgroundColor: colors.surface }]}
-                />
-              </Suspense>
+              <FechaHoraNativePickers
+                part="time"
+                draftDateTime={draftDateTime}
+                setDraftDateTime={setDraftDateTime}
+                pickerTheme={appTheme}
+                shellStyle={[styles.pickerShell, { backgroundColor: colors.surface }]}
+              />
 
               <View style={[styles.modalActionsRow, { borderTopColor: colors.borderLight }]}>
                 <TouchableOpacity
@@ -1250,12 +1233,6 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     borderRadius: BorderRadius.md,
     overflow: 'hidden',
-    marginBottom: Spacing.md,
-  },
-  pickerSuspenseFallback: {
-    minHeight: 120,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: Spacing.md,
   },
   modalActionsRow: {

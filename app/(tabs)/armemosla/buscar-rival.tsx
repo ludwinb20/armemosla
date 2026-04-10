@@ -208,7 +208,7 @@ export default function BuscarRivalScreen() {
     try {
       setLoading(true);
       await crearPartidoAbierto(formReservaId, formEquipoId, formJugadoresNecesarios, formBuscaAutomatico);
-      showSuccess('Éxito', 'Partido abierto creado correctamente');
+      showSuccess('Listo', 'Tu partido ya está en la piscina. Otros equipos pueden pedirte reto.');
       setShowCrearPartido(false);
       resetFormCrear();
       loadData();
@@ -229,7 +229,7 @@ export default function BuscarRivalScreen() {
     try {
       setEnviandoSolicitud(true);
       await enviarSolicitudPartido(partidoSolicitar.id, solicitudEquipoId, solicitudMensaje || undefined);
-      showSuccess('Éxito', 'Solicitud enviada correctamente');
+      showSuccess('Reto enviado', 'El dueño de la reserva puede aceptarte o rechazarte.');
       setShowEnviarSolicitud(false);
       resetFormSolicitud();
       loadData();
@@ -244,7 +244,7 @@ export default function BuscarRivalScreen() {
   const handleAceptarSolicitud = async (solicitudId: string) => {
     try {
       await aceptarSolicitud(solicitudId);
-      showSuccess('Éxito', 'Solicitud aceptada');
+      showSuccess('Reto aceptado', 'Ese partido ya no aparece en la piscina para los demás.');
       setShowModalSolicitudes(false);
       loadData();
     } catch (error: any) {
@@ -266,8 +266,8 @@ export default function BuscarRivalScreen() {
 
   const handleCancelarPartido = async (partidoId: string) => {
     showError(
-      'Cancelar Partido',
-      '¿Estás seguro de que deseas cancelar este partido abierto?',
+      'Quitar de la piscina',
+      '¿Seguro? Tu reserva sigue vigente, solo deja de mostrarse para que otros pidan reto.',
       () => {
         cancelarPartidoAsync(partidoId);
       },
@@ -280,7 +280,7 @@ export default function BuscarRivalScreen() {
   const cancelarPartidoAsync = async (partidoId: string) => {
     try {
       await cancelarPartidoAbierto(partidoId);
-      showSuccess('Éxito', 'Partido cancelado');
+      showSuccess('Listo', 'Publicación quitada de la piscina');
       loadData();
     } catch (error: any) {
       console.error('Error al cancelar partido:', error);
@@ -333,7 +333,7 @@ export default function BuscarRivalScreen() {
   const getEstadoTexto = (estado: string) => {
     switch (estado) {
       case 'confirmado':
-        return 'Confirmado';
+        return 'Rival confirmado';
       case 'cancelado':
         return 'Cancelado';
       case 'en_negociacion':
@@ -371,7 +371,7 @@ export default function BuscarRivalScreen() {
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerTitleBlock}>
-            <Text style={[styles.title, { color: colors.text }]}>Buscar Rival</Text>
+            <Text style={[styles.title, { color: colors.text }]}>Buscar rival</Text>
           </View>
         </View>
       </View>
@@ -391,7 +391,7 @@ export default function BuscarRivalScreen() {
               { color: tabActivo === 'mis-partidos' ? Colors.primary : colors.textSecondary },
             ]}
           >
-            Mis Partidos
+            Mi piscina
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -407,7 +407,7 @@ export default function BuscarRivalScreen() {
               { color: tabActivo === 'buscar-partidos' ? Colors.primary : colors.textSecondary },
             ]}
           >
-            Buscar Partidos
+            Pedir reto
           </Text>
         </TouchableOpacity>
       </View>
@@ -420,7 +420,7 @@ export default function BuscarRivalScreen() {
             onPress={() => setShowCrearPartido(true)}
           >
             <Ionicons name="add-circle-outline" size={24} color={Colors.textInverse} />
-            <Text style={styles.createButtonText}>Crear Partido Abierto</Text>
+            <Text style={styles.createButtonText}>Publicar partido en la piscina</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -435,9 +435,9 @@ export default function BuscarRivalScreen() {
           {misPartidos.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="people-outline" size={64} color={colors.textSecondary} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No tienes partidos abiertos</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>Nada en tu piscina</Text>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                Crea un partido abierto para buscar rivales
+                Publicá una reserva pendiente para que otros equipos vean tu partido y pidan reto.
               </Text>
             </View>
           ) : (
@@ -506,7 +506,7 @@ export default function BuscarRivalScreen() {
                         }}
                       >
                         <Ionicons name="mail-outline" size={18} color={Colors.textInverse} />
-                        <Text style={styles.actionButtonText}>Ver Solicitudes</Text>
+                        <Text style={styles.actionButtonText}>Ver retos</Text>
                       </TouchableOpacity>
                     )}
                     {partido.estado === 'abierto' && (
@@ -533,7 +533,7 @@ export default function BuscarRivalScreen() {
             ]}
           >
             <Text style={[styles.exploreToolbarTitle, { color: colors.text }]}>
-              Filtros (fecha en servidor, hora en este listado)
+              Partidos en la piscina (reservas de otros que buscan rival). Filtros de fecha y hora local.
             </Text>
             <View style={styles.exploreRow}>
               <View style={styles.exploreField}>
@@ -680,9 +680,9 @@ export default function BuscarRivalScreen() {
               {partidosDisponibles.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Ionicons name="search-outline" size={64} color={colors.textSecondary} />
-                  <Text style={[styles.emptyTitle, { color: colors.text }]}>No hay partidos disponibles</Text>
+                  <Text style={[styles.emptyTitle, { color: colors.text }]}>La piscina está vacía</Text>
                   <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                    No se encontraron partidos abiertos con los filtros actuales
+                    No hay publicaciones abiertas con estos filtros. Cuando alguien aparte cancha y publique, aparecerá acá.
                   </Text>
                 </View>
               ) : (
@@ -743,7 +743,7 @@ export default function BuscarRivalScreen() {
                           }}
                         >
                           <Ionicons name="send-outline" size={18} color={Colors.textInverse} />
-                          <Text style={styles.actionButtonText}>Enviar Solicitud</Text>
+                          <Text style={styles.actionButtonText}>Pedir reto</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -768,7 +768,7 @@ export default function BuscarRivalScreen() {
         <SafeAreaView style={styles.modalSheetOuter} edges={['top', 'bottom']}>
           <View style={[styles.modalCard, { backgroundColor: colors.background, maxHeight: modalMaxHeight }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Crear Partido Abierto</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Publicar en la piscina</Text>
               <TouchableOpacity onPress={() => setShowCrearPartido(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
@@ -893,7 +893,7 @@ export default function BuscarRivalScreen() {
                 {loading ? (
                   <ActivityIndicator size="small" color={Colors.textInverse} />
                 ) : (
-                  <Text style={styles.modalButtonTextSave}>Crear</Text>
+                  <Text style={styles.modalButtonTextSave}>Publicar</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -913,7 +913,7 @@ export default function BuscarRivalScreen() {
         <SafeAreaView style={styles.modalSheetOuter} edges={['top', 'bottom']}>
           <View style={[styles.modalCard, { backgroundColor: colors.background, maxHeight: modalMaxHeight }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Solicitudes</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Retos recibidos</Text>
               <TouchableOpacity onPress={() => setShowModalSolicitudes(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
@@ -962,7 +962,7 @@ export default function BuscarRivalScreen() {
                             onPress={() => handleAceptarSolicitud(solicitud.id)}
                           >
                             <Ionicons name="checkmark-circle-outline" size={18} color={Colors.textInverse} />
-                            <Text style={styles.solicitudButtonTextAceptar}>Aceptar</Text>
+                            <Text style={styles.solicitudButtonTextAceptar}>Aceptar reto</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -972,7 +972,7 @@ export default function BuscarRivalScreen() {
                 <View style={styles.emptyState}>
                   <Ionicons name="mail-outline" size={48} color={colors.textSecondary} />
                   <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                    No hay solicitudes pendientes
+                    No hay retos pendientes
                   </Text>
                 </View>
               )}
@@ -994,7 +994,7 @@ export default function BuscarRivalScreen() {
         <SafeAreaView style={styles.modalSheetOuter} edges={['top', 'bottom']}>
           <View style={[styles.modalCard, { backgroundColor: colors.background, maxHeight: modalMaxHeight }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Enviar Solicitud</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Pedir reto</Text>
               <TouchableOpacity onPress={() => setShowEnviarSolicitud(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
@@ -1069,7 +1069,7 @@ export default function BuscarRivalScreen() {
                 {enviandoSolicitud ? (
                   <ActivityIndicator size="small" color={Colors.textInverse} />
                 ) : (
-                  <Text style={styles.modalButtonTextSave}>Enviar</Text>
+                  <Text style={styles.modalButtonTextSave}>Enviar reto</Text>
                 )}
               </TouchableOpacity>
             </View>

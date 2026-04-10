@@ -1,29 +1,31 @@
-import React from 'react';
-import { View, Platform, StyleProp, ViewStyle } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import React, { useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { startOfToday, endOfBookingWindow } from '../lib/bookingWindow';
+import ReservaMesCalendarioJugador from './ReservaMesCalendarioJugador';
+import FechaHoraWheelPickers from './FechaHoraWheelPickers';
 
 const SLOT_MINUTES = 30;
+const TIME_START_HOUR = 6;
+const TIME_END_HOUR = 23;
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
+export type FechaHoraNativePickersProps = {
+  part: 'date' | 'time';
+  draftDateTime: Date;
+  setDraftDateTime: (d: Date) => void;
+  pickerTheme: 'light' | 'dark';
+  shellStyle?: StyleProp<ViewStyle>;
+  weekdayLabelColor?: string;
+  /**
+   * Solo aplica a `part="date"`: calendario mensual (por defecto) o ruedas nativas.
+   * La hora sigue usando siempre el picker de ruedas.
+   */
+  dateSelectionMode?: 'calendar' | 'wheel';
+};
 
-function endOfBookingWindow(): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + 90);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function minimumTimeForDateIfToday(selected: Date): Date | undefined {
-  const t0 = new Date();
-  t0.setHours(0, 0, 0, 0);
-  const s0 = new Date(selected);
-  s0.setHours(0, 0, 0, 0);
-  if (s0.getTime() !== t0.getTime()) return undefined;
-  return new Date();
+function nombreDiaSemana(d: Date): string {
+  const s = d.toLocaleDateString('es-HN', { weekday: 'long' });
+  if (!s) return '';
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function roundToSlot(date: Date): Date {
@@ -31,69 +33,130 @@ function roundToSlot(date: Date): Date {
   return new Date(Math.round(date.getTime() / ms) * ms);
 }
 
-export type FechaHoraNativePickersProps = {
-  draftDateTime: Date;
-  setDraftDateTime: React.Dispatch<React.SetStateAction<Date>>;
-  pickerTheme: 'light' | 'dark';
-  shellStyle: StyleProp<ViewStyle>;
-  /** Un picker por instancia para poder etiquetar Fecha / Hora en el padre. */
-  part: 'date' | 'time';
-};
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
 
-/**
- * Cargado con React.lazy desde la pantalla de búsqueda para no romper
- * la evaluación del route si el binario aún no incluye RNCDatePicker.
- */
+function earliestAllowedTodaySlot(now: Date): Date {
+  const minOk = new Date(now.getTime() + 5 * 60 * 1000);
+  let d = roundToSlot(minOk);
+  const dayStart = startOfToday();
+  const six = new Date(dayStart);
+  six.setHours(TIME_START_HOUR, 0, 0, 0);
+  if (d < six) d = new Date(six);
+  return d;
+}
+
+function pinBetween(d: Date, minD: Date, maxD: Date): Date {
+  const t = Math.min(Math.max(d.getTime(), minD.getTime()), maxD.getTime());
+  return new Date(t);
+}
+
+function clampDayTimeToBusinessHours(baseDay: Date, timeSource: Date, now: Date): Date {
+  const out = new Date(baseDay);
+  out.setHours(
+    timeSource.getHours(),
+    timeSource.getMinutes(),
+    timeSource.getSeconds(),
+    timeSource.getMilliseconds()
+  );
+  let r = roundToSlot(out);
+  const dayStart = new Date(r);
+  dayStart.setHours(0, 0, 0, 0);
+  const open = new Date(dayStart);
+  open.setHours(TIME_START_HOUR, 0, 0, 0);
+  const close = new Date(dayStart);
+  close.setHours(TIME_END_HOUR, 0, 0, 0);
+  if (r < open) r = open;
+  if (r > close) r = close;
+  if (isSameCalendarDay(r, now)) {
+    const minT = earliestAllowedTodaySlot(now);
+    if (r < minT) r = minT;
+  }
+  return r;
+}
+
 export default function FechaHoraNativePickers({
+  part,
   draftDateTime,
   setDraftDateTime,
   pickerTheme,
   shellStyle,
-  part,
+  weekdayLabelColor,
+  dateSelectionMode = 'calendar',
 }: FechaHoraNativePickersProps) {
-  if (part === 'date') {
+  const minDate = useMemo(() => startOfToday(), []);
+  const maxDate = useMemo(() => endOfBookingWindow(), []);
+
+  const diaSemanaColor =
+    weekdayLabelColor ?? (pickerTheme === 'dark' ? '#d0d0d0' : '#444444');
+
+  const onCalendarDay = useCallback(
+    (dayStart: Date) => {
+      const n = new Date();
+      let merged = clampDayTimeToBusinessHours(dayStart, draftDateTime, n);
+      merged = pinBetween(merged, minDate, maxDate);
+      setDraftDateTime(merged);
+    },
+    [draftDateTime, setDraftDateTime, minDate, maxDate]
+  );
+
+  if (part === 'time') {
     return (
-      <View style={shellStyle}>
-        <DateTimePicker
-          value={draftDateTime}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
-          locale="es-HN"
-          themeVariant={pickerTheme}
-          minimumDate={startOfToday()}
-          maximumDate={endOfBookingWindow()}
-          onChange={(_, date) => {
-            if (!date) return;
-            setDraftDateTime((prev) => {
-              const next = new Date(date);
-              next.setHours(prev.getHours(), prev.getMinutes(), 0, 0);
-              return roundToSlot(next);
-            });
-          }}
-        />
-      </View>
+      <FechaHoraWheelPickers
+        part="time"
+        draftDateTime={draftDateTime}
+        setDraftDateTime={setDraftDateTime}
+        pickerTheme={pickerTheme}
+        shellStyle={shellStyle}
+      />
+    );
+  }
+
+  if (dateSelectionMode === 'wheel') {
+    return (
+      <FechaHoraWheelPickers
+        part="date"
+        draftDateTime={draftDateTime}
+        setDraftDateTime={setDraftDateTime}
+        pickerTheme={pickerTheme}
+        shellStyle={shellStyle}
+        weekdayLabelColor={weekdayLabelColor}
+      />
     );
   }
 
   return (
-    <View style={shellStyle}>
-      <DateTimePicker
+    <View style={[styles.shell, shellStyle]}>
+      <Text
+        style={[styles.weekdayLabel, { color: diaSemanaColor }]}
+        accessibilityLabel={`Día de la semana: ${nombreDiaSemana(draftDateTime)}`}
+      >
+        {nombreDiaSemana(draftDateTime)}
+      </Text>
+      <ReservaMesCalendarioJugador
         value={draftDateTime}
-        mode="time"
-        display={Platform.OS === 'ios' ? 'spinner' : 'clock'}
-        locale="es-HN"
-        themeVariant={pickerTheme}
-        {...(Platform.OS === 'ios' ? { minuteInterval: SLOT_MINUTES } : {})}
-        {...(Platform.OS === 'ios' ? { minimumDate: minimumTimeForDateIfToday(draftDateTime) } : {})}
-        onChange={(_, picked) => {
-          if (!picked) return;
-          setDraftDateTime((prev) => {
-            const next = new Date(prev);
-            next.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
-            return roundToSlot(next);
-          });
-        }}
+        onChangeDay={onCalendarDay}
+        compact
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  shell: {
+    overflow: 'hidden',
+    alignItems: 'stretch',
+  },
+  weekdayLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 6,
+    letterSpacing: 0.2,
+  },
+});

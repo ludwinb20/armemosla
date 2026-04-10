@@ -23,7 +23,7 @@ export default function ArmemoslaScreen() {
       icon: 'calendar-outline',
       title: 'Apartar cancha',
       description:
-        'Solo reserva la cancha en la fecha y hora que más te convenga.',
+        'Reservá la cancha sin publicar nada en la piscina (si ya tenés rival o solo querés el turno).',
       onPress: () => router.push({ pathname: '/(tabs)/armemosla/buscar', params: { flow: 'solo' } }),
     },
     {
@@ -31,7 +31,7 @@ export default function ArmemoslaScreen() {
       icon: 'football-outline',
       title: 'Apartar cancha y buscar rival',
       description:
-        'Reserva la cancha en la hora y fecha que más te convenga y te ayudaremos a conseguir rival para dicho partido.',
+        'Después de reservar, publicás tu partido en la piscina para que otros equipos puedan pedirte reto.',
       onPress: () => router.push({ pathname: '/(tabs)/armemosla/buscar', params: { flow: 'con_rival' } }),
     },
     {
@@ -39,7 +39,7 @@ export default function ArmemoslaScreen() {
       icon: 'ticket-outline',
       title: 'Buscar rival para una cancha ya apartada',
       description:
-        'Te ayudamos a encontrar rival para una cancha que ya tengas apartada.',
+        'Elegí una reserva pendiente y sumala a la piscina si todavía necesitás contrincante.',
       onPress: () => router.push('/(tabs)/armemosla/rival-desde-reserva'),
     },
     {
@@ -47,7 +47,7 @@ export default function ArmemoslaScreen() {
       icon: 'people-outline',
       title: 'Buscar rival',
       description:
-        'Te ayudamos a pedirle reto a alguien que ya tenga la cancha apartada.',
+        'Entrá a la piscina: partidos publicados por otros. Pedí reto con tu equipo; si te aceptan, ese partido deja de listarse.',
       onPress: () =>
         router.push({
           pathname: '/(tabs)/armemosla/buscar-rival',
