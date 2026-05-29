@@ -15,9 +15,8 @@ import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../../constants/theme';
-import { buscarCanchasPorUbicacion, buscarCanchasPorFiltros, CanchaBusqueda, FiltrosBusqueda, agruparCanchasPorComplejo, ComplejoBusqueda, obtenerCanchasDeComplejo } from '../../../lib/busqueda';
+import { buscarCanchasPorUbicacion, buscarCanchasPorFiltros, CanchaBusqueda, FiltrosBusqueda, agruparCanchasPorComplejo, ComplejoBusqueda, obtenerCanchasDeComplejo, obtenerFotosPorComplejos } from '../../../lib/busqueda';
 import { crearReservaJugador } from '../../../lib/reservas';
-import { supabase } from '../../../lib/supabase';
 import { useCustomAlert } from '../../../hooks/useCustomAlert';
 import CustomAlert from '../../../components/CustomAlert';
 import { useThemeColors } from '../../../hooks/useThemeColors';
@@ -25,72 +24,66 @@ import { useTheme } from '../../../contexts/ThemeContext';
 import BusquedaMapa from '../../../components/BusquedaMapa';
 import FechaHoraNativePickers from '../../../components/FechaHoraNativePickers';
 import BusquedaLista from '../../../components/BusquedaLista';
+import PlayerLoadingView from '../../../components/lottie/PlayerLoadingView';
+import PlayerEmptyState from '../../../components/lottie/PlayerEmptyState';
 import {
   getRModalBackdropProps,
   getRModalCenterSheetStyle,
   getRModalCardLayout,
   rModalAnimLeft,
 } from '../../../lib/rnModalPresets';
-import { endOfBookingWindow } from '../../../lib/bookingWindow';
+import {
+  endOfBookingWindow,
+  snapToNearestWholeHour,
+  getEarliestAllowedHourToday,
+} from '../../../lib/bookingWindow';
+import { formatFechaHoraDisplay, dateToUtcIsoHN } from '../../../lib/fechaHora';
+import PublicarPartidoModal from '../../../components/PublicarPartidoModal';
 
-/** Franjas de reserva en minutos (coinciden con turnos típicos de cancha). */
-const SLOT_MINUTES = 30;
 const DEFAULT_EVENING_HOUR = 18;
 
-function roundToSlot(date: Date): Date {
-  const ms = SLOT_MINUTES * 60 * 1000;
-  return new Date(Math.round(date.getTime() / ms) * ms);
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
+/** Próxima fecha/hora válida; prioriza 6:00 p. m. Si es hoy, respeta la primera hora permitida (≥ ahora + 1 h en punto). */
 function defaultReservationDateTime(): Date {
-  const evening = new Date();
-  evening.setHours(DEFAULT_EVENING_HOUR, 0, 0, 0);
-  evening.setSeconds(0, 0);
-  let cand = roundToSlot(evening);
-  if (cand.getTime() > Date.now()) return cand;
-  let d = new Date();
-  d.setSeconds(0, 0);
-  d = roundToSlot(d);
-  const minOk = new Date(Date.now() + 5 * 60 * 1000);
-  while (d <= minOk) {
-    d = new Date(d.getTime() + SLOT_MINUTES * 60 * 1000);
-  }
-  return d;
-}
+  const now = new Date();
+  const maxDate = endOfBookingWindow();
 
-function applyDayOffsetKeepingTime(days: number, timeSource: Date | null): Date {
-  const ref = timeSource ? new Date(timeSource) : defaultReservationDateTime();
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  d.setHours(ref.getHours(), ref.getMinutes(), 0, 0);
-  let out = roundToSlot(d);
-  const minOk = new Date(Date.now() - 60 * 1000);
-  while (out.getTime() < minOk.getTime()) {
-    out = new Date(out.getTime() + SLOT_MINUTES * 60 * 1000);
-  }
-  return out;
-}
+  for (let dayOffset = 0; dayOffset < 120; dayOffset++) {
+    const cal = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset);
+    cal.setHours(0, 0, 0, 0);
 
-function nextSaturdayEveningSlot(): Date {
-  const d = new Date();
-  const day = d.getDay();
-  let add = (6 - day + 7) % 7;
-  if (add === 0) {
-    const target = new Date(d);
-    target.setHours(DEFAULT_EVENING_HOUR, 0, 0, 0);
-    target.setSeconds(0, 0);
-    const t = roundToSlot(target);
-    if (t.getTime() <= Date.now()) add = 7;
+    const atSix = new Date(cal);
+    atSix.setHours(DEFAULT_EVENING_HOUR, 0, 0, 0);
+    atSix.setSeconds(0, 0);
+    atSix.setMilliseconds(0);
+
+    if (atSix.getTime() > maxDate.getTime()) {
+      break;
+    }
+
+    if (isSameCalendarDay(cal, now)) {
+      const minToday = getEarliestAllowedHourToday(now);
+      if (minToday === null) {
+        continue;
+      }
+      if (atSix.getTime() >= minToday.getTime()) {
+        return atSix;
+      }
+      return minToday;
+    }
+
+    return atSix;
   }
-  d.setDate(d.getDate() + add);
-  d.setHours(DEFAULT_EVENING_HOUR, 0, 0, 0);
-  d.setSeconds(0, 0);
-  let out = roundToSlot(d);
-  const minOk = new Date(Date.now() - 60 * 1000);
-  while (out.getTime() < minOk.getTime()) {
-    out = new Date(out.getTime() + SLOT_MINUTES * 60 * 1000);
-  }
-  return out;
+
+  const fallback = getEarliestAllowedHourToday(now);
+  return fallback ?? snapToNearestWholeHour(now);
 }
 
 type VistaTipo = 'mapa' | 'lista';
@@ -139,6 +132,8 @@ function BuscarScreen() {
   
   // Reserva
   const [reservando, setReservando] = useState(false);
+  const [showPublicarModal, setShowPublicarModal] = useState(false);
+  const [reservaIdParaPublicar, setReservaIdParaPublicar] = useState<string | undefined>();
   
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
@@ -152,7 +147,35 @@ function BuscarScreen() {
     if (fechaHora) {
       buscar();
     }
-  }, [fechaHora, vistaTipo, ordenarPor]);
+  }, [fechaHora, ubicacionActual?.lat, ubicacionActual?.lng]);
+
+  useEffect(() => {
+    if (vistaTipo !== 'mapa' || canchas.length === 0) {
+      if (vistaTipo !== 'mapa') {
+        setComplejos([]);
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const agrupados = agruparCanchasPorComplejo(canchas);
+      const fotosMap = await obtenerFotosPorComplejos(agrupados.map((c) => c.id));
+      if (cancelled) return;
+
+      setComplejos(
+        agrupados.map((complejo) => ({
+          ...complejo,
+          fotos: fotosMap.get(complejo.id) || [],
+        }))
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vistaTipo, canchas]);
 
   const obtenerUbicacionActual = async () => {
     try {
@@ -189,13 +212,13 @@ function BuscarScreen() {
         resultados = await buscarCanchasPorUbicacion(
           ubicacionActual.lat,
           ubicacionActual.lng,
-          fechaHora.toISOString(),
+          dateToUtcIsoHN(fechaHora),
           50 // radio de 50km
         );
       } else {
         // Búsqueda por filtros
         const filtros: FiltrosBusqueda = {
-          fechaHora: fechaHora.toISOString(),
+          fechaHora: dateToUtcIsoHN(fechaHora),
           nombre: filtroNombre || undefined,
           precioMin,
           precioMax,
@@ -206,25 +229,6 @@ function BuscarScreen() {
       }
 
       setCanchas(resultados);
-      
-      // Si es vista de mapa, agrupar por complejo
-      if (vistaTipo === 'mapa') {
-        const complejosAgrupados = agruparCanchasPorComplejo(resultados);
-        // Obtener fotos de complejos
-        const complejosConFotos = await Promise.all(
-          complejosAgrupados.map(async (complejo) => {
-            const { data: fotos } = await supabase
-              .from('complejo_fotos')
-              .select('id, foto_url, orden')
-              .eq('complejo_id', complejo.id)
-              .order('orden', { ascending: true });
-            return { ...complejo, fotos: fotos || [] };
-          })
-        );
-        setComplejos(complejosConFotos);
-      } else {
-        setComplejos([]);
-      }
     } catch (error: any) {
       console.error('Error al buscar canchas:', error);
       showError('Error', 'No se pudieron cargar las canchas');
@@ -246,18 +250,12 @@ function BuscarScreen() {
 
     try {
       setReservando(true);
-      const nuevaReserva = await crearReservaJugador(cancha.id, fechaHora.toISOString());
+      const nuevaReserva = await crearReservaJugador(cancha.id, dateToUtcIsoHN(fechaHora));
       setShowModalDetalle(false);
       buscar(); // Recargar para actualizar disponibilidad
       if (flowConRival && nuevaReserva?.id) {
-        showSuccess(
-          'Reserva lista',
-          'Siguiente paso: publicar tu partido en la piscina para que otros equipos puedan pedirte reto.'
-        );
-        router.push({
-          pathname: '/(tabs)/armemosla/buscar-rival',
-          params: { openCrear: '1', reservaId: nuevaReserva.id },
-        });
+        setReservaIdParaPublicar(nuevaReserva.id);
+        setShowPublicarModal(true);
       } else {
         showSuccess('Éxito', 'Reserva creada correctamente');
       }
@@ -278,43 +276,35 @@ function BuscarScreen() {
     }).format(amount);
   };
 
-  const formatFechaHora = (fecha: Date) => {
-    return {
-      fecha: fecha.toLocaleDateString('es-HN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      }),
-      hora: fecha.toLocaleTimeString('es-HN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    };
-  };
+  const formatFechaHora = (fecha: Date) =>
+    formatFechaHoraDisplay(fecha.toISOString());
 
   const openFechaHoraModal = () => {
-    setDraftDateTime(fechaHora ? new Date(fechaHora) : defaultReservationDateTime());
+    const base = fechaHora ? new Date(fechaHora) : defaultReservationDateTime();
+    setDraftDateTime(snapToNearestWholeHour(base));
     setShowFechaHoraModal(true);
   };
 
-  const pickQuickDateToDraft = (kind: 'today' | 'tomorrow' | 'plus2' | 'sat') => {
-    let next: Date;
-    if (kind === 'today') next = applyDayOffsetKeepingTime(0, draftDateTime);
-    else if (kind === 'tomorrow') next = applyDayOffsetKeepingTime(1, draftDateTime);
-    else if (kind === 'plus2') next = applyDayOffsetKeepingTime(2, draftDateTime);
-    else next = nextSaturdayEveningSlot();
-    setDraftDateTime(next);
-  };
-
-  const applyQuickHourToDraft = (hour: number, minute: number) => {
-    const base = new Date(draftDateTime);
-    base.setHours(hour, minute, 0, 0);
-    setDraftDateTime(roundToSlot(base));
-  };
-
   const confirmFechaHora = () => {
-    const v = roundToSlot(draftDateTime);
+    const v = snapToNearestWholeHour(draftDateTime);
+    const ahora = new Date();
+    if (isSameCalendarDay(v, ahora)) {
+      const minHoy = getEarliestAllowedHourToday(ahora);
+      if (minHoy === null) {
+        showError(
+          'Sin horarios para hoy',
+          'Ya no quedan turnos en hora en punto para el día de hoy. Elegí otra fecha.'
+        );
+        return;
+      }
+      if (v.getTime() < minHoy.getTime()) {
+        showError(
+          'Hora inválida para hoy',
+          'Tenés que elegir al menos una hora después de la próxima hora en punto (una hora después de ahora).'
+        );
+        return;
+      }
+    }
     if (v.getTime() < Date.now() - 60 * 1000) {
       showError('Fecha u hora inválida', 'Elegí un momento a partir de ahora.');
       return;
@@ -330,8 +320,6 @@ function BuscarScreen() {
     setFechaHora(v);
     setShowFechaHoraModal(false);
   };
-
-  const EVENING_HOURS = [17, 18, 19, 20, 21, 22];
 
   const handleCanchaPress = (cancha: CanchaBusqueda) => {
     setCanchaSeleccionada(cancha);
@@ -538,10 +526,7 @@ function BuscarScreen() {
 
       {/* Contenido: Mapa o Lista */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Buscando canchas...</Text>
-        </View>
+        <PlayerLoadingView message="Buscando canchas..." style={styles.loadingContainer} />
       ) : !fechaHora ? (
         <View style={styles.emptyState}>
           <Ionicons name="calendar-outline" size={64} color={colors.textSecondary} />
@@ -562,7 +547,7 @@ function BuscarScreen() {
               if (!fechaHora) return;
               const { canchas: canchasDelComplejo, fotosComplejo: fotos } = await obtenerCanchasDeComplejo(
                 complejo.id,
-                fechaHora.toISOString()
+                dateToUtcIsoHN(fechaHora)
               );
               setCanchasComplejo(canchasDelComplejo);
               setFotosComplejo(fotos);
@@ -577,6 +562,7 @@ function BuscarScreen() {
       ) : (
         <BusquedaLista
           canchas={canchas}
+          ordenarPor={ordenarPor}
           onCanchaPress={(cancha) => {
             setCanchaSeleccionada(cancha);
             setShowModalDetalle(true);
@@ -589,7 +575,10 @@ function BuscarScreen() {
               setTimeout(() => {
                 setComplejoSeleccionado(complejo);
                 setShowModalComplejo(true);
-                obtenerCanchasDeComplejo(complejo.id, fechaHora?.toISOString() || new Date().toISOString())
+                obtenerCanchasDeComplejo(
+                  complejo.id,
+                  fechaHora ? dateToUtcIsoHN(fechaHora) : dateToUtcIsoHN(new Date())
+                )
                   .then(({ canchas: canchasDelComplejo, fotosComplejo: fotos }) => {
                     setCanchasComplejo(canchasDelComplejo);
                     setFotosComplejo(fotos);
@@ -627,52 +616,6 @@ function BuscarScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator
             >
-              <Text style={[styles.modalHint, { color: colors.textSecondary }]}>
-                Elegí día y hora con los atajos o los selectores. Podés reservar hasta con 3 meses de
-                anticipación. Turnos cada {SLOT_MINUTES} minutos (6:00–23:00).
-              </Text>
-              <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Día rápido</Text>
-              <View style={styles.chipRow}>
-                <TouchableOpacity
-                  style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                  onPress={() => pickQuickDateToDraft('today')}
-                >
-                  <Text style={[styles.chipText, { color: colors.text }]}>Hoy</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                  onPress={() => pickQuickDateToDraft('tomorrow')}
-                >
-                  <Text style={[styles.chipText, { color: colors.text }]}>Mañana</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                  onPress={() => pickQuickDateToDraft('plus2')}
-                >
-                  <Text style={[styles.chipText, { color: colors.text }]}>En 2 días</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                  onPress={() => pickQuickDateToDraft('sat')}
-                >
-                  <Text style={[styles.chipText, { color: colors.text }]}>Próx. sábado</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Hora habitual</Text>
-              <View style={styles.chipRow}>
-                {EVENING_HOURS.map((h) => (
-                  <TouchableOpacity
-                    key={h}
-                    style={[styles.chip, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                    onPress={() => applyQuickHourToDraft(h, 0)}
-                  >
-                    <Text style={[styles.chipText, { color: colors.text }]}>
-                      {`${h.toString().padStart(2, '0')}:00`}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
               <Text style={[styles.modalSectionLabel, { color: colors.textSecondary }]}>Fecha</Text>
               <FechaHoraNativePickers
                 part="date"
@@ -689,7 +632,11 @@ function BuscarScreen() {
                 draftDateTime={draftDateTime}
                 setDraftDateTime={setDraftDateTime}
                 pickerTheme={appTheme}
-                shellStyle={[styles.pickerShell, { backgroundColor: colors.surface }]}
+                shellStyle={[
+                  styles.pickerShell,
+                  styles.pickerShellTime,
+                  { backgroundColor: colors.surface },
+                ]}
               />
 
               <View style={[styles.modalActionsRow, { borderTopColor: colors.borderLight }]}>
@@ -889,17 +836,17 @@ function BuscarScreen() {
               showsVerticalScrollIndicator
             >
               {loadingComplejo ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color={Colors.primary} />
-                  <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                    Cargando canchas...
-                  </Text>
-                </View>
+                <PlayerLoadingView
+                  message="Cargando canchas..."
+                  style={{ flex: 0, paddingVertical: Spacing.xl }}
+                />
               ) : canchasComplejo.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Ionicons name="football-outline" size={64} color={colors.textSecondary} />
-                  <Text style={[styles.emptyTitle, { color: colors.text }]}>No hay canchas</Text>
-                </View>
+                <PlayerEmptyState
+                  variant="emptyField"
+                  title="No hay canchas"
+                  text="No hay canchas disponibles en este complejo para la fecha y hora seleccionadas."
+                  compact
+                />
               ) : (
                 canchasComplejo.map((cancha) => (
                   <TouchableOpacity
@@ -983,6 +930,31 @@ function BuscarScreen() {
           </View>
         </SafeAreaView>
       </RNModal>
+
+      <PublicarPartidoModal
+        visible={showPublicarModal}
+        reservaIdPrefilled={reservaIdParaPublicar}
+        onClose={() => {
+          setShowPublicarModal(false);
+          setReservaIdParaPublicar(undefined);
+        }}
+        onSuccess={(matchesFound) => {
+          const extra =
+            matchesFound > 0
+              ? ` Encontramos ${matchesFound} rival${matchesFound !== 1 ? 'es' : ''} compatible${matchesFound !== 1 ? 's' : ''}.`
+              : '';
+          showSuccess(
+            'Partido publicado',
+            `Tu partido ya busca rival. Revisá solicitudes en Mis Potras.${extra}`,
+            () => {
+              router.push({
+                pathname: '/(tabs)/mis-reservas',
+                params: { seccion: 'solicitudes' },
+              });
+            }
+          );
+        }}
+      />
 
       <CustomAlert
         visible={alertVisible}
@@ -1200,27 +1172,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
   },
-  modalHint: {
-    fontSize: Typography.fontSize.sm,
-    lineHeight: 20,
-    marginBottom: Spacing.md,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  chip: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-  },
-  chipText: {
-    fontSize: Typography.fontSize.sm,
-    fontWeight: Typography.fontWeight.semibold,
-  },
   modalSectionLabel: {
     fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.semibold,
@@ -1234,6 +1185,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     overflow: 'hidden',
     marginBottom: Spacing.md,
+  },
+  /** Solo selector de hora: más angosto y centrado. */
+  pickerShellTime: {
+    alignSelf: 'center',
+    maxWidth: 280,
+    width: '100%',
   },
   modalActionsRow: {
     flexDirection: 'row',

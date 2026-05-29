@@ -15,6 +15,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../constants/theme';
+import PlayerLoadingView from './lottie/PlayerLoadingView';
 import {
   getRModalBackdropProps,
   getRModalBottomSheetStyle,
@@ -173,10 +174,7 @@ export default function LocationPicker({
       <SafeAreaView style={styles.modalBottomWidth} edges={['bottom']}>
         <View style={styles.sheetInner}>
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.loadingText}>Cargando mapa...</Text>
-            </View>
+            <PlayerLoadingView message="Cargando mapa..." compact style={styles.loadingContainer} />
           ) : (
             <>
               <View style={styles.header}>

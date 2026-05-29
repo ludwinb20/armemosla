@@ -1,10 +1,21 @@
 import { supabase } from './supabase';
-import {
-  notifyNuevaSolicitudPartido,
-  notifySolicitudAceptada,
-  notifySolicitudRechazada,
-  notifyMatchEncontrado,
-} from './notifications';
+
+const MENSAJE_SOLICITUD_DEFAULT = '¡Hola! Me interesa jugar este partido.';
+
+function insertarMensajeInicialSolicitud(solicitudId: string, body: string, senderId: string) {
+  void supabase
+    .from('mensajes_solicitud')
+    .insert({
+      solicitud_id: solicitudId,
+      sender_id: senderId,
+      body,
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.warn('⚠️ [insertarMensajeInicialSolicitud]', error);
+      }
+    });
+}
 
 export interface PartidoAbierto {
   id: string;
@@ -74,6 +85,29 @@ export interface FiltrosPartidos {
   jugadoresMax?: number;
 }
 
+export interface JugadorRetoCandidato {
+  jugador_id: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  equipo_id?: string | null;
+  equipo_nombre?: string | null;
+  equipo_logo_url?: string | null;
+  equipo_nombre_visible: string;
+  complejos_en_comun: number;
+  ya_invitado: boolean;
+}
+
+export interface RetoDirectoJugador {
+  id: string;
+  reserva_id: string;
+  creador_id: string;
+  jugador_objetivo_id: string;
+  mensaje?: string | null;
+  estado: 'pendiente' | 'aceptado' | 'rechazado' | 'cancelado';
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Crea un nuevo partido abierto
  */
@@ -100,20 +134,43 @@ export async function crearPartidoAbierto(
       .select()
       .single();
 
-    if (error) throw error;
-    if (!data) throw new Error('No se pudo crear el partido abierto');
-
-    // Si busca automático, intentar encontrar match
-    if (buscaAutomatico) {
-      // Esto se puede hacer en background o inmediatamente
-      // Por ahora solo lo marcamos, la búsqueda se puede hacer después
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error('Esta reserva ya está publicada en la piscina.');
+      }
+      throw error;
     }
+    if (!data) throw new Error('No se pudo crear el partido abierto');
 
     return data as PartidoAbierto;
   } catch (error: any) {
     console.error('❌ [crearPartidoAbierto] Error:', error);
     throw error;
   }
+}
+
+export interface PublicarReservaResult {
+  partido: PartidoAbierto;
+  matchesFound: number;
+}
+
+/**
+ * Publica una reserva buscando rival (búsqueda automática siempre activa).
+ */
+export async function publicarReservaBuscarRival(
+  reservaId: string,
+  equipoId: string,
+  jugadoresNecesarios: number
+): Promise<PublicarReservaResult> {
+  const partido = await crearPartidoAbierto(reservaId, equipoId, jugadoresNecesarios, true);
+  let matchesFound = 0;
+  try {
+    const matches = await buscarMatchAutomatico(partido.id);
+    matchesFound = matches.length;
+  } catch (error) {
+    console.error('❌ [publicarReservaBuscarRival] match automático:', error);
+  }
+  return { partido, matchesFound };
 }
 
 /**
@@ -197,6 +254,34 @@ export async function obtenerPartidosAbiertos(
 }
 
 /**
+ * Estados de partidos abiertos para un conjunto de reservas (consulta liviana).
+ */
+export async function obtenerEstadosPartidoPorReservas(
+  reservaIds: string[]
+): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  if (reservaIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('partidos_abiertos')
+    .select('reserva_id, estado')
+    .in('reserva_id', reservaIds);
+
+  if (error) {
+    console.error('❌ [obtenerEstadosPartidoPorReservas] Error:', error);
+    return map;
+  }
+
+  for (const row of data || []) {
+    const rid = row.reserva_id as string | undefined;
+    if (rid) {
+      map[rid] = row.estado as string;
+    }
+  }
+  return map;
+}
+
+/**
  * Obtiene los partidos abiertos creados por el jugador actual
  */
 export async function obtenerPartidosJugador(): Promise<PartidoAbiertoWithRelations[]> {
@@ -277,50 +362,33 @@ export async function enviarSolicitudPartido(
       throw new Error('No perteneces a este equipo');
     }
 
+    const cuerpoInicial = mensaje?.trim() || MENSAJE_SOLICITUD_DEFAULT;
+
     const { data, error } = await supabase
       .from('solicitudes_partidos')
       .insert({
         partido_id: partidoId,
         equipo_solicitante_id: equipoId,
-        mensaje,
+        mensaje: cuerpoInicial,
         estado: 'pendiente',
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '42501') {
+        throw new Error(
+          'No tenés permiso para enviar este reto. Verificá que seas miembro del equipo y que el partido siga abierto.'
+        );
+      }
+      if (error.code === '23505') {
+        throw new Error('Ya enviaste un reto a este partido con ese equipo.');
+      }
+      throw error;
+    }
     if (!data) throw new Error('No se pudo enviar la solicitud');
 
-    // Enviar notificación al creador del partido (local)
-    try {
-      const { data: partido } = await supabase
-        .from('partidos_abiertos')
-        .select(`
-          *,
-          equipo:equipos(nombre)
-        `)
-        .eq('id', partidoId)
-        .single();
-
-      if (partido) {
-        const equipoSolicitante = await supabase
-          .from('equipos')
-          .select('nombre')
-          .eq('id', equipoId)
-          .single();
-
-        if (equipoSolicitante.data) {
-          // Notificar al creador del partido
-          await notifyNuevaSolicitudPartido(
-            equipoSolicitante.data.nombre,
-            partidoId
-          );
-        }
-      }
-    } catch (notifError) {
-      // No fallar si la notificación falla
-      console.error('Error al enviar notificación:', notifError);
-    }
+    insertarMensajeInicialSolicitud(data.id, cuerpoInicial, user.id);
 
     return data as SolicitudPartido;
   } catch (error: any) {
@@ -373,23 +441,6 @@ export async function aceptarSolicitud(solicitudId: string): Promise<void> {
       .update({ estado: 'confirmado' })
       .eq('id', (solicitud.partido as any).id);
 
-    // Enviar notificación al equipo solicitante
-    try {
-      const { data: equipoSolicitante } = await supabase
-        .from('equipos')
-        .select('nombre')
-        .eq('id', (solicitud as any).equipo_solicitante_id)
-        .single();
-
-      if (equipoSolicitante) {
-        await notifySolicitudAceptada(
-          equipoSolicitante.nombre,
-          (solicitud.partido as any).id
-        );
-      }
-    } catch (notifError) {
-      console.error('Error al enviar notificación:', notifError);
-    }
   } catch (error: any) {
     console.error('❌ [aceptarSolicitud] Error:', error);
     throw error;
@@ -425,23 +476,6 @@ export async function rechazarSolicitud(solicitudId: string): Promise<void> {
 
     if (error) throw error;
 
-    // Enviar notificación al equipo solicitante
-    try {
-      const { data: equipoSolicitante } = await supabase
-        .from('equipos')
-        .select('nombre')
-        .eq('id', (solicitud as any).equipo_solicitante_id)
-        .single();
-
-      if (equipoSolicitante) {
-        await notifySolicitudRechazada(
-          equipoSolicitante.nombre,
-          (solicitud.partido as any).id
-        );
-      }
-    } catch (notifError) {
-      console.error('Error al enviar notificación:', notifError);
-    }
   } catch (error: any) {
     console.error('❌ [rechazarSolicitud] Error:', error);
     throw error;
@@ -471,8 +505,8 @@ export async function cancelarPartidoAbierto(partidoId: string): Promise<void> {
 }
 
 /**
- * Busca matches automáticos para un partido abierto
- * Retorna partidos compatibles (misma fecha/hora, similar número de jugadores)
+ * Busca rivales compatibles en la piscina (misma franja horaria, jugadores similares).
+ * Prioriza publicaciones con búsqueda automática activada.
  */
 export async function buscarMatchAutomatico(
   partidoId: string
@@ -481,17 +515,11 @@ export async function buscarMatchAutomatico(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
 
-    // Obtener el partido actual
     const { data: partido, error: partidoError } = await supabase
       .from('partidos_abiertos')
       .select(`
         *,
-        reserva:reservas(
-          fecha_hora,
-          cancha:canchas(
-            jugadores_por_equipo
-          )
-        )
+        reserva:reservas(fecha_hora)
       `)
       .eq('id', partidoId)
       .eq('creador_id', user.id)
@@ -501,46 +529,47 @@ export async function buscarMatchAutomatico(
       throw new Error('Partido no encontrado');
     }
 
-    const reserva = partido.reserva as any;
-    if (!reserva) {
+    const reserva = partido.reserva as { fecha_hora?: string } | undefined;
+    if (!reserva?.fecha_hora) {
       throw new Error('Reserva no encontrada');
     }
 
-    const fechaHora = new Date(reserva.fecha_hora);
-    const fechaInicio = new Date(fechaHora);
-    fechaInicio.setHours(fechaInicio.getHours() - 1);
-    const fechaFin = new Date(fechaHora);
-    fechaFin.setHours(fechaFin.getHours() + 1);
+    const fechaHoraMs = new Date(reserva.fecha_hora).getTime();
+    const ventanaMs = 60 * 60 * 1000;
+    const jugadoresObjetivo = partido.jugadores_necesarios || 5;
 
-    // Buscar partidos abiertos en la misma fecha/hora
-    const { data: matches, error: matchesError } = await supabase
+    const { data: candidatos, error: matchesError } = await supabase
       .from('partidos_abiertos')
       .select(`
         *,
-        reserva:reservas(
-          fecha_hora,
-          cancha:canchas(
-            jugadores_por_equipo
-          )
-        ),
-        equipo:equipos(
-          id,
-          nombre,
-          logo_url
-        )
+        reserva:reservas(fecha_hora),
+        equipo:equipos(id, nombre, logo_url)
       `)
       .eq('estado', 'abierto')
-      .eq('busca_automatico', true)
       .neq('id', partidoId)
-      .neq('creador_id', user.id)
-      .gte('reservas.fecha_hora', fechaInicio.toISOString())
-      .lte('reservas.fecha_hora', fechaFin.toISOString())
-      .gte('jugadores_necesarios', (partido.jugadores_necesarios || 1) - 2)
-      .lte('jugadores_necesarios', (partido.jugadores_necesarios || 1) + 2);
+      .neq('creador_id', user.id);
 
     if (matchesError) throw matchesError;
 
-    return (matches || []) as PartidoAbiertoWithRelations[];
+    const compatibles = (candidatos || [])
+      .filter((c) => {
+        const fh = (c.reserva as { fecha_hora?: string } | undefined)?.fecha_hora;
+        if (!fh) return false;
+        const diff = Math.abs(new Date(fh).getTime() - fechaHoraMs);
+        if (diff > ventanaMs) return false;
+        const j = c.jugadores_necesarios || 0;
+        return Math.abs(j - jugadoresObjetivo) <= 2;
+      })
+      .sort((a, b) => {
+        const aAuto = a.busca_automatico ? 1 : 0;
+        const bAuto = b.busca_automatico ? 1 : 0;
+        if (bAuto !== aAuto) return bAuto - aAuto;
+        const aFh = new Date((a.reserva as { fecha_hora: string }).fecha_hora).getTime();
+        const bFh = new Date((b.reserva as { fecha_hora: string }).fecha_hora).getTime();
+        return Math.abs(aFh - fechaHoraMs) - Math.abs(bFh - fechaHoraMs);
+      });
+
+    return compatibles as PartidoAbiertoWithRelations[];
   } catch (error: any) {
     console.error('❌ [buscarMatchAutomatico] Error:', error);
     throw error;
@@ -574,4 +603,309 @@ export function filterPartidosPorRangoHorario(
     const mins = d.getHours() * 60 + d.getMinutes();
     return mins >= start && mins <= end;
   });
+}
+
+/**
+ * Lista jugadores candidatos para ofrecer un reto directo.
+ * Orden: más complejos en común primero. Paginación por limit/offset.
+ */
+export async function listarJugadoresParaReto(
+  reservaId: string,
+  limit: number = 15,
+  offset: number = 0
+): Promise<JugadorRetoCandidato[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data, error } = await supabase.rpc('listar_jugadores_para_reto', {
+      p_reserva_id: reservaId,
+      p_limit: limit,
+      p_offset: offset,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    const rows = (data || []) as any[];
+    return rows.map((r) => ({
+      jugador_id: String(r.jugador_id),
+      full_name: r.full_name ?? null,
+      avatar_url: r.avatar_url ?? null,
+      equipo_id: r.equipo_id ?? null,
+      equipo_nombre: r.equipo_nombre ?? null,
+      equipo_logo_url: r.equipo_logo_url ?? null,
+      equipo_nombre_visible:
+        r.equipo_nombre_visible ||
+        `Equipo de ${r.full_name || 'Jugador'}`,
+      complejos_en_comun: Number(r.complejos_en_comun || 0),
+      ya_invitado: Boolean(r.ya_invitado),
+    }));
+  } catch (error: any) {
+    console.error('❌ [listarJugadoresParaReto] Error:', error);
+    if (error?.code === 'PGRST202') {
+      throw new Error(
+        'Falta ejecutar la migración SQL de retos directos (función listar_jugadores_para_reto).'
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Crea (o reactiva) una oferta de reto directo para un jugador.
+ */
+export interface SolicitudRetoPiscinaItem {
+  id: string;
+  estado: 'pendiente' | 'aceptada' | 'rechazada' | 'cancelada';
+  mensaje?: string | null;
+  created_at: string;
+  direccion: 'enviada' | 'recibida';
+  equipoSolicitanteNombre: string;
+  equipoAnfitrionNombre?: string;
+  partidoId: string;
+  reservaId?: string;
+  reservaFechaHora?: string;
+  canchaNombre?: string;
+  complejoNombre?: string;
+}
+
+export interface RetoDirectoItem {
+  id: string;
+  estado: 'pendiente' | 'aceptado' | 'rechazado' | 'cancelado';
+  mensaje?: string | null;
+  created_at: string;
+  direccion: 'enviado' | 'recibido';
+  contrincanteNombre: string;
+  reservaId: string;
+  reservaFechaHora?: string;
+  canchaNombre?: string;
+  complejoNombre?: string;
+}
+
+type PartidoSolicitudRow = {
+  id: string;
+  estado: string;
+  mensaje?: string | null;
+  created_at: string;
+  equipo_solicitante?: { nombre?: string } | null;
+  partido?: {
+    id: string;
+    equipo?: { nombre?: string } | null;
+    reserva?: {
+      id: string;
+      fecha_hora?: string;
+      cancha?: { nombre?: string; complejo?: { nombre?: string } | null } | null;
+    } | null;
+  } | null;
+};
+
+function mapSolicitudPiscina(
+  row: PartidoSolicitudRow,
+  direccion: 'enviada' | 'recibida',
+  equipoAnfitrionNombre?: string
+): SolicitudRetoPiscinaItem {
+  const partido = row.partido;
+  const reserva = partido?.reserva;
+  const cancha = reserva?.cancha;
+  return {
+    id: row.id,
+    estado: row.estado as SolicitudRetoPiscinaItem['estado'],
+    mensaje: row.mensaje,
+    created_at: row.created_at,
+    direccion,
+    equipoSolicitanteNombre: row.equipo_solicitante?.nombre || 'Equipo',
+    equipoAnfitrionNombre,
+    partidoId: partido?.id || '',
+    reservaId: reserva?.id,
+    reservaFechaHora: reserva?.fecha_hora,
+    canchaNombre: cancha?.nombre,
+    complejoNombre: cancha?.complejo?.nombre,
+  };
+}
+
+/**
+ * Solicitudes de reto en la piscina (enviadas por mis equipos y recibidas en mis publicaciones).
+ */
+export async function obtenerSolicitudesRetoPiscinaJugador(): Promise<SolicitudRetoPiscinaItem[]> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const items: SolicitudRetoPiscinaItem[] = [];
+
+    const { data: membresias } = await supabase
+      .from('jugador_equipos')
+      .select('equipo_id')
+      .eq('jugador_id', user.id);
+
+    const equipoIds = (membresias || [])
+      .map((m) => m.equipo_id as string)
+      .filter((id): id is string => Boolean(id));
+
+    if (equipoIds.length > 0) {
+      const { data: enviadas, error: errEnv } = await supabase
+        .from('solicitudes_partidos')
+        .select(
+          `
+          id, estado, mensaje, created_at,
+          equipo_solicitante:equipos(nombre),
+          partido:partidos_abiertos(
+            id,
+            equipo:equipos(nombre),
+            reserva:reservas(
+              id, fecha_hora,
+              cancha:canchas(nombre, complejo:complejos(nombre))
+            )
+          )
+        `
+        )
+        .in('equipo_solicitante_id', equipoIds)
+        .order('created_at', { ascending: false });
+
+      if (errEnv) throw errEnv;
+      for (const row of (enviadas || []) as PartidoSolicitudRow[]) {
+        items.push(
+          mapSolicitudPiscina(row, 'enviada', row.partido?.equipo?.nombre || undefined)
+        );
+      }
+    }
+
+    const { data: misPartidos, error: errRec } = await supabase
+      .from('partidos_abiertos')
+      .select(
+        `
+        id,
+        equipo:equipos(nombre),
+        reserva:reservas(
+          id, fecha_hora,
+          cancha:canchas(nombre, complejo:complejos(nombre))
+        ),
+        solicitudes:solicitudes_partidos(
+          id, estado, mensaje, created_at,
+          equipo_solicitante:equipos(nombre)
+        )
+      `
+      )
+      .eq('creador_id', user.id);
+
+    if (errRec) throw errRec;
+
+    for (const partido of misPartidos || []) {
+      const anfitrion = (partido as { equipo?: { nombre?: string } }).equipo?.nombre;
+      const solicitudes = (partido as { solicitudes?: PartidoSolicitudRow[] }).solicitudes || [];
+      for (const sol of solicitudes) {
+        items.push(
+          mapSolicitudPiscina(
+            {
+              ...sol,
+              partido: {
+                id: partido.id,
+                equipo: (partido as { equipo?: { nombre?: string } }).equipo,
+                reserva: (partido as { reserva?: PartidoSolicitudRow['partido'] }).reserva,
+              },
+            },
+            'recibida',
+            anfitrion
+          )
+        );
+      }
+    }
+
+    items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return items;
+  } catch (error: any) {
+    console.error('❌ [obtenerSolicitudesRetoPiscinaJugador] Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Retos directos jugador (enviados y recibidos).
+ */
+export async function obtenerRetosDirectosJugador(): Promise<RetoDirectoItem[]> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data, error } = await supabase
+      .from('retos_directos_jugador')
+      .select(
+        `
+        id, estado, mensaje, created_at, reserva_id, creador_id, jugador_objetivo_id,
+        reserva:reservas(
+          fecha_hora,
+          cancha:canchas(nombre, complejo:complejos(nombre))
+        ),
+        creador:profiles!retos_directos_jugador_creador_id_fkey(full_name),
+        objetivo:profiles!retos_directos_jugador_jugador_objetivo_id_fkey(full_name)
+      `
+      )
+      .or(`creador_id.eq.${user.id},jugador_objetivo_id.eq.${user.id}`)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map((row) => {
+      const soyCreador = row.creador_id === user.id;
+      const reserva = row.reserva as {
+        fecha_hora?: string;
+        cancha?: { nombre?: string; complejo?: { nombre?: string } };
+      } | null;
+      const creador = row.creador as { full_name?: string | null } | null;
+      const objetivo = row.objetivo as { full_name?: string | null } | null;
+      return {
+        id: row.id,
+        estado: row.estado as RetoDirectoItem['estado'],
+        mensaje: row.mensaje,
+        created_at: row.created_at,
+        direccion: soyCreador ? 'enviado' : 'recibido',
+        contrincanteNombre: soyCreador
+          ? objetivo?.full_name || 'Jugador'
+          : creador?.full_name || 'Jugador',
+        reservaId: row.reserva_id,
+        reservaFechaHora: reserva?.fecha_hora,
+        canchaNombre: reserva?.cancha?.nombre,
+        complejoNombre: reserva?.cancha?.complejo?.nombre,
+      };
+    });
+  } catch (error: any) {
+    console.error('❌ [obtenerRetosDirectosJugador] Error:', error);
+    throw error;
+  }
+}
+
+export async function crearRetoDirectoJugador(
+  reservaId: string,
+  jugadorObjetivoId: string,
+  mensaje?: string
+): Promise<RetoDirectoJugador> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data, error } = await supabase.rpc('crear_reto_directo_jugador', {
+      p_reserva_id: reservaId,
+      p_jugador_objetivo_id: jugadorObjetivoId,
+      p_mensaje: mensaje ?? null,
+    });
+
+    if (error) throw error;
+    if (!data) throw new Error('No se pudo crear la oferta de reto');
+
+    return data as RetoDirectoJugador;
+  } catch (error: any) {
+    console.error('❌ [crearRetoDirectoJugador] Error:', error);
+    if (error?.code === 'PGRST202') {
+      throw new Error(
+        'Falta ejecutar la migración SQL de retos directos (función crear_reto_directo_jugador).'
+      );
+    }
+    throw error;
+  }
 }

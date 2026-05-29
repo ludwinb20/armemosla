@@ -1,15 +1,15 @@
 import { Tabs } from 'expo-router';
 import React, { useState, useEffect, useCallback } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '../../constants/theme';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useRoleCheck } from '../../hooks/useRoleCheck';
-import { View, ActivityIndicator, Text } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { getUserType } from '../../lib/user';
 import { useFocusEffect } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import AnimatedFootballTabIcon from '../../components/AnimatedFootballTabIcon';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 
 export default function TabLayout() {
   const colors = useThemeColors();
@@ -17,119 +17,141 @@ export default function TabLayout() {
   const [userType, setUserType] = useState<'Jugador' | 'Administrador de Cancha' | null>(null);
   const [loadingType, setLoadingType] = useState(true);
 
-  const loadUserType = useCallback(async () => {
+  const loadUserType = useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? true;
     try {
+      if (showLoading) {
+        setLoadingType(true);
+      }
       const type = await getUserType();
       setUserType(type);
     } catch (error) {
       console.error('Error al obtener tipo de usuario:', error);
     } finally {
-      setLoadingType(false);
+      if (showLoading) {
+        setLoadingType(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (hasAccess && !isChecking) {
-      loadUserType();
-
-      // Suscribirse a cambios en el perfil del usuario en tiempo real
-      let channel: ReturnType<typeof supabase.channel> | null = null;
-
-      const setupSubscription = async () => {
-        try {
-          const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-          if (userError) {
-            console.error('❌ [TabLayout] Error getting user:', userError);
-            return;
-          }
-
-          if (user) {
-            channel = supabase
-              .channel(`profile_changes_${user.id}`, {
-                config: {
-                  broadcast: { self: false },
-                },
-              })
-              .on(
-                'postgres_changes',
-                {
-                  event: 'UPDATE',
-                  schema: 'public',
-                  table: 'profiles',
-                  filter: `id=eq.${user.id}`,
-                },
-                async (payload) => {
-                  console.log('🔄 Perfil actualizado:', payload.new);
-                  // Recargar el tipo de usuario cuando cambie
-                  if (payload.new?.user_type) {
-                    setTimeout(async () => {
-                      await loadUserType();
-                    }, 100);
-                  }
-                }
-              );
-
-            channel.subscribe((status) => {
-              if (status === 'SUBSCRIBED') {
-                console.log('✅ Suscrito a cambios de perfil');
-              } else if (status === 'CHANNEL_ERROR') {
-                console.error('❌ Error en canal - Realtime puede no estar habilitado para profiles');
-              } else if (status === 'TIMED_OUT') {
-                console.error('❌ Suscripción agotó el tiempo de espera');
-              }
-            });
-          }
-        } catch (error) {
-          console.error('❌ [TabLayout] Error setting up subscription:', error);
-        }
-      };
-
-      setupSubscription();
-
-      return () => {
-        if (channel) {
-          supabase.removeChannel(channel);
-        }
-      };
+    if (!hasAccess || isChecking) {
+      if (!hasAccess) {
+        setLoadingType(false);
+        setUserType(null);
+      }
+      return;
     }
+
+    loadUserType({ showLoading: true });
+
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let subscribed = false;
+
+    const setupSubscription = async () => {
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (cancelled) return;
+
+        if (userError) {
+          if (__DEV__) {
+            console.warn('⚠️ [TabLayout] No se pudo obtener usuario para Realtime:', userError.message);
+          }
+          return;
+        }
+
+        if (!user) return;
+
+        channel = supabase
+          .channel(`profile_changes_${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'profiles',
+              filter: `id=eq.${user.id}`,
+            },
+            (payload) => {
+              if (payload.new?.user_type) {
+                void loadUserType({ showLoading: false });
+              }
+            }
+          )
+          .subscribe((status, err) => {
+            if (cancelled) return;
+
+            if (status === 'SUBSCRIBED') {
+              subscribed = true;
+              if (__DEV__) {
+                console.log('✅ [TabLayout] Realtime profiles activo');
+              }
+              return;
+            }
+
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              if (!subscribed && __DEV__) {
+                console.warn(
+                  '⚠️ [TabLayout] Realtime en profiles no disponible. Opcional: ejecutá db_settings/18_enable_realtime_profiles.sql en Supabase.',
+                  err?.message ?? status
+                );
+              }
+            }
+          });
+      } catch (error) {
+        if (!cancelled && __DEV__) {
+          console.warn('⚠️ [TabLayout] Suscripción Realtime omitida:', error);
+        }
+      }
+    };
+
+    void setupSubscription();
+
+    return () => {
+      cancelled = true;
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
   }, [hasAccess, isChecking, loadUserType]);
 
   // Recargar tipo de usuario cuando la pantalla recibe foco
   useFocusEffect(
     useCallback(() => {
-      if (hasAccess && !isChecking) {
-        loadUserType();
-        console.log('🔄 Perfil actualizado: NADA');
+      if (hasAccess && !isChecking && !loadingType) {
+        void loadUserType({ showLoading: false });
       }
-    }, [hasAccess, isChecking, loadUserType])
+    }, [hasAccess, isChecking, loadingType, loadUserType])
   );
 
-  // Mostrar loading mientras se verifica el rol
   if (isChecking) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView className="flex-1 justify-center items-center bg-background" edges={['top', 'bottom']}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text className="mt-md text-md text-text-secondary font-medium">Verificando acceso...</Text>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <PlayerLoadingView message="Verificando acceso..." />
         </SafeAreaView>
       </SafeAreaProvider>
     );
   }
 
-  // Si no tiene acceso, el hook ya redirigirá, pero por si acaso retornamos null
-  if (!hasAccess || loadingType) {
-    if (loadingType) {
-      return (
-        <SafeAreaProvider>
-          <SafeAreaView className="flex-1 justify-center items-center bg-background" edges={['top', 'bottom']}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <Text className="mt-md text-md text-text-secondary font-medium">Cargando...</Text>
-          </SafeAreaView>
-        </SafeAreaProvider>
-      );
-    }
+  if (!hasAccess) {
     return null;
+  }
+
+  if (loadingType) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <PlayerLoadingView message="Cargando..." />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
   }
 
   // Determinar qué tabs mostrar según el tipo de usuario
@@ -217,9 +239,19 @@ export default function TabLayout() {
           <Tabs.Screen
             name="mis-reservas"
             options={{
-              title: 'Mis Reservas',
+              title: 'Mis Potras',
               tabBarIcon: ({ color, size }) => (
-                <Ionicons name="calendar-outline" size={size} color={color} />
+                <MaterialCommunityIcons name="soccer-field" size={size} color={color} />
+              ),
+              href: isJugador ? undefined : null,
+            }}
+          />
+          <Tabs.Screen
+            name="logros"
+            options={{
+              title: 'Logros',
+              tabBarIcon: ({ color, size }) => (
+                <Ionicons name="trophy-outline" size={size} color={color} />
               ),
               href: isJugador ? undefined : null,
             }}

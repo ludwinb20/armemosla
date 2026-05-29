@@ -32,13 +32,29 @@ export async function crearEquipo(
   logoUrl?: string
 ): Promise<Equipo> {
   try {
+    const nombreLimpio = (nombre || '').trim();
+    if (!nombreLimpio) {
+      throw new Error('El nombre del equipo es obligatorio');
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
+
+    // Regla de negocio: un solo equipo por jugador.
+    const { data: existente, error: existingError } = await supabase
+      .from('jugador_equipos')
+      .select('equipo_id')
+      .eq('jugador_id', user.id)
+      .limit(1);
+    if (existingError) throw existingError;
+    if (existente && existente.length > 0) {
+      throw new Error('Solo puedes tener un equipo. Edita el actual para cambiar nombre o escudo.');
+    }
 
     const { data, error } = await supabase
       .from('equipos')
       .insert({
-        nombre,
+        nombre: nombreLimpio,
         logo_url: logoUrl,
         creador_id: user.id,
       })
@@ -149,7 +165,13 @@ export async function actualizarEquipo(
     if (!user) throw new Error('Usuario no autenticado');
 
     const updateData: any = {};
-    if (updates.nombre !== undefined) updateData.nombre = updates.nombre;
+    if (updates.nombre !== undefined) {
+      const nombreLimpio = updates.nombre.trim();
+      if (!nombreLimpio) {
+        throw new Error('El nombre del equipo es obligatorio');
+      }
+      updateData.nombre = nombreLimpio;
+    }
     if (updates.logo_url !== undefined) updateData.logo_url = updates.logo_url;
 
     const { data, error } = await supabase

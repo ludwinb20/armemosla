@@ -21,10 +21,8 @@ $$;
 -- Comentario para documentación
 COMMENT ON FUNCTION public.auto_completar_reservas() IS 'Actualiza automáticamente las reservas pendientes a completadas después de 30 minutos de su fecha_hora';
 
--- NOTA: Para ejecutar esta función automáticamente, puedes:
--- 1. Crear un cron job en Supabase (si está disponible)
--- 2. Llamarla desde el backend periódicamente
--- 3. Crear un trigger que se ejecute en cada consulta (menos eficiente)
+-- NO re-ejecutar después de 32_logros_evaluacion.sql / 38_auto_completar_con_logros.sql:
+-- esta versión NO evalúa logros. Usar 38 para producción con cron.
 --
 -- Ejemplo de llamada manual:
 -- SELECT public.auto_completar_reservas();

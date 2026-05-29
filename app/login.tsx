@@ -5,17 +5,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  ActivityIndicator,
   TextInput,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import {
-  GoogleSignin,
-  isErrorWithCode,
-  isSuccessResponse,
-} from '@react-native-google-signin/google-signin';
 import { supabase } from '../lib/supabase';
 import { router } from 'expo-router';
 import { Colors, Spacing, BorderRadius, Shadows } from '../constants/theme';
@@ -33,28 +27,10 @@ import {
   getRModalCenterSheetStyle,
   rModalAnimLeft,
 } from '../lib/rnModalPresets';
+import { configureGoogleSignIn, signInWithGoogle as signInWithGoogleAuth } from '../lib/auth/google';
+import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
 
 const { width } = Dimensions.get('window');
-
-/** Android: DEVELOPER_ERROR — casi siempre SHA-1 del keystore no registrado en Firebase/Google Cloud. */
-const ANDROID_GOOGLE_DEVELOPER_ERROR = '10';
-
-function mensajeErrorGoogleSignIn(err: unknown): string {
-  const msg =
-    err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-  if (
-    (isErrorWithCode(err) && String(err.code) === ANDROID_GOOGLE_DEVELOPER_ERROR) ||
-    /DEVELOPER_ERROR|Developer error/i.test(msg)
-  ) {
-    return (
-      'Google no reconoce esta compilación de la app (SHA-1). ' +
-      'En Firebase Console → tu app Android, agregá el SHA-1 de debug: ' +
-      'en la carpeta android ejecutá `gradlew signingReport` y copiá el SHA-1 de la variante debug. ' +
-      'Si instalás un build de EAS, agregá también el SHA-1 de release. Luego descargá de nuevo google-services.json.'
-    );
-  }
-  return msg || 'Error al iniciar sesión con Google';
-}
 
 export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
@@ -72,99 +48,26 @@ export default function LoginScreen() {
   const rCenter = getRModalCenterSheetStyle();
 
   useEffect(() => {
-    const configureGoogleSignIn = () => {
-      try {
-        const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-
-        if (!googleClientId) {
-          console.warn('⚠️ [Login] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no está configurada. Login con Google no funcionará.');
-          return;
-        }
-
-        console.log('🔧 [Login] Configurando Google Sign-In en useEffect...');
-        GoogleSignin.configure({
-          webClientId: googleClientId,
-          offlineAccess: true,
-        });
-        console.log('✅ [Login] Google Sign-In configurado correctamente');
-      } catch (error) {
-        console.error('❌ [Login] Error configurando Google Sign-In:', error);
-      }
-    };
-
     configureGoogleSignIn();
   }, []);
 
   const signInWithGoogle = async () => {
     try {
       console.log('🔐 [signInWithGoogle] Iniciando login con Google...');
-
-      // Verificar que Google Sign-In esté configurado
-      const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-      if (!googleClientId) {
-        showError('Error', 'Google Sign-In no está configurado. Por favor contacta al administrador.');
-        return;
-      }
-
-      // Asegurarse de que está configurado antes de usar
-      try {
-        GoogleSignin.configure({
-          webClientId: googleClientId,
-          offlineAccess: true,
-        });
-        console.log('✅ [signInWithGoogle] Google Sign-In configurado');
-      } catch (configError) {
-        console.error('❌ [signInWithGoogle] Error al configurar:', configError);
-      }
-
       setLoading(true);
 
-      console.log('🔐 [signInWithGoogle] Verificando Play Services...');
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      console.log('✅ [signInWithGoogle] Play Services OK');
-
-      console.log('🔐 [signInWithGoogle] Solicitando información de Google...');
-      const signInResult = await GoogleSignin.signIn();
-
-      if (!isSuccessResponse(signInResult)) {
-        console.log('🔐 [signInWithGoogle] Inicio cancelado o sin datos');
-        return;
-      }
-
-      const userInfo = signInResult.data;
-      console.log('✅ [signInWithGoogle] Información de Google obtenida:', {
-        email: userInfo.user?.email,
-        name: userInfo.user?.name,
-        hasPhoto: !!userInfo.user?.photo,
-      });
-
-      if (userInfo.user?.photo) {
-        await AsyncStorage.setItem('google_avatar', userInfo.user.photo);
+      const { data, error, googleUser } = await signInWithGoogleAuth();
+      if (googleUser?.photo) {
+        await AsyncStorage.setItem('google_avatar', googleUser.photo);
         console.log('💾 [signInWithGoogle] Google avatar guardado en AsyncStorage');
       }
-
-      let idToken = userInfo.idToken;
-      if (!idToken) {
-        const tokens = await GoogleSignin.getTokens();
-        idToken = tokens.idToken;
-      }
-      if (!idToken) {
-        showError('Error', 'No se pudo obtener el token de Google. Intentá de nuevo.');
-        return;
-      }
-
-      console.log('🔐 [signInWithGoogle] Autenticando con Supabase...');
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: idToken,
-      });
 
       if (error) {
         console.error('❌ [signInWithGoogle] Error de Supabase:', {
           message: error.message,
-          status: error.status,
         });
-        showError('Error', error.message);
+        showError('Error con Google', error.message);
+        return;
       } else {
         console.log('✅ [signInWithGoogle] Login exitoso:', {
           userId: data.user?.id,
@@ -183,14 +86,13 @@ export default function LoginScreen() {
           router.push('/select-user-type');
         }
       }
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error('❌ [signInWithGoogle] Error general:', {
-        message: err instanceof Error ? err.message : err,
-        code: isErrorWithCode(err) ? err.code : undefined,
+        message: err instanceof Error ? err.message : String(err),
         error: JSON.stringify(err),
         stack: err instanceof Error ? err.stack : undefined,
       });
-      showError('Error con Google', mensajeErrorGoogleSignIn(err));
+      showError('Error con Google', err?.message || 'Error al iniciar sesión con Google');
     } finally {
       console.log('🔐 [signInWithGoogle] Finalizando proceso de login');
       setLoading(false);
@@ -598,13 +500,9 @@ export default function LoginScreen() {
               disabled={loading}
               activeOpacity={0.8}
             >
-              {loading ? (
-                <ActivityIndicator color={Colors.textInverse} size="small" />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {isLoginMode ? 'Iniciar Sesión' : 'Crear Cuenta'}
-                </Text>
-              )}
+              <Text style={styles.primaryButtonText}>
+                {isLoginMode ? 'Iniciar Sesión' : 'Crear Cuenta'}
+              </Text>
             </TouchableOpacity>
 
             {/* Toggle Mode */}
@@ -713,11 +611,7 @@ export default function LoginScreen() {
               disabled={resetLoading}
               activeOpacity={0.8}
             >
-              {resetLoading ? (
-                <ActivityIndicator color={Colors.textInverse} size="small" />
-              ) : (
-                <Text style={styles.primaryButtonText}>Enviar enlace</Text>
-              )}
+              <Text style={styles.primaryButtonText}>Enviar enlace</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -733,6 +627,16 @@ export default function LoginScreen() {
           </View>
         </View>
       </RNModal>
+
+      {(loading || resetLoading) && (
+        <View style={styles.loadingOverlay}>
+          <PlayerLoadingView
+            message={resetLoading ? 'Enviando enlace...' : 'Iniciando sesión...'}
+            messageStyle={styles.loadingOverlayMessage}
+            style={styles.loadingOverlayContent}
+          />
+        </View>
+      )}
 
       {/* Custom Alert */}
       <CustomAlert
@@ -995,5 +899,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     fontWeight: '500',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  loadingOverlayContent: {
+    flex: 0,
+    padding: Spacing.lg,
+  },
+  loadingOverlayMessage: {
+    color: '#FFFFFF',
   },
 });

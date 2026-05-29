@@ -1,0 +1,15 @@
+-- Referencia: fechas de reserva en hora Honduras (UTC-6, America/Tegucigalpa)
+--
+-- Ejemplo del problema:
+--   Guardado:  2026-05-25 00:00:00+00  (medianoche UTC)
+--   En Honduras: 24 mayo 2026, 6:00 p. m. (no 25 mayo 6:00 p. m.)
+--   Auto-completar: 30 min después del inicio → 25 mayo 00:30 UTC = 24 mayo 6:30 p. m. HN
+--
+-- Si la intención era 25 mayo 2026 a las 6:00 a. m. en Honduras:
+--   UPDATE public.reservas
+--   SET fecha_hora = TIMESTAMPTZ '2026-05-25 12:00:00+00',
+--       updated_at = TIMEZONE('utc', NOW())
+--   WHERE id = 'TU_RESERVA_ID';
+--
+-- Forzar auto-completar pendientes vencidas (o usar el cron / Edge Function auto-completar-reservas):
+--   SELECT public.auto_completar_reservas();

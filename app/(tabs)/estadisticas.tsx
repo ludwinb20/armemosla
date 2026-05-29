@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Colors } from '../../constants/theme';
 import { getUserType } from '../../lib/user';
 import DashboardAdmin from '../../components/DashboardAdmin';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 
 export default function EstadisticasScreen() {
   const router = useRouter();
@@ -29,9 +29,7 @@ export default function EstadisticasScreen() {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background">
-        <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView />
       </SafeAreaView>
     );
   }

@@ -7,6 +7,8 @@ export interface FacturaMensual {
   año: number;
   total_facturado: number;
   comision: number;
+  total_descuentos_canje?: number;
+  comision_neta?: number;
   estado_pago: 'pendiente' | 'pagado' | 'vencido';
   fecha_limite_pago: string;
   fecha_pago?: string | null;

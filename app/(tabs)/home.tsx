@@ -12,17 +12,25 @@ import {
 } from 'react-native';
 import RNModal from 'react-native-modal';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { getCanchas, CanchaWithRelations, CanchaDisponibilidad, getCanchaDisponibilidad } from '../../lib/canchas';
 import { getReservas, createReserva, updateReserva, cancelarReserva, ReservaWithRelations } from '../../lib/reservas';
+import {
+  formatLocalDateYMD,
+  formatHora12FromDate,
+  formatHora12HN,
+  localHNToUtcIso,
+  getHourInHN,
+} from '../../lib/fechaHora';
 import { supabase } from '../../lib/supabase';
 import ReservaCalendar from '../../components/ReservaCalendar';
 import MonthlyCalendar from '../../components/MonthlyCalendar';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 import {
   getRModalBackdropProps,
   getRModalBottomSheetStyle,
@@ -351,17 +359,13 @@ export default function HomeScreen() {
     }
 
     // Filtrar horas que ya tienen reservas
-    const fechaISO = fechaSeleccionada.toISOString().split('T')[0];
+    const fechaISO = formatLocalDateYMD(fechaSeleccionada);
     const horasOcupadas = reservasCancha
       .filter((r) => {
-        const reservaFecha = new Date(r.fecha_hora);
-        const reservaFechaISO = reservaFecha.toISOString().split('T')[0];
+        const reservaFechaISO = formatLocalDateYMD(r.fecha_hora);
         return reservaFechaISO === fechaISO && r.estado !== 'cancelada';
       })
-      .map((r) => {
-        const reservaFecha = new Date(r.fecha_hora);
-        return reservaFecha.getHours();
-      });
+      .map((r) => getHourInHN(r.fecha_hora));
 
     return horas.filter((h) => !horasOcupadas.includes(h.hora));
   };
@@ -406,30 +410,28 @@ export default function HomeScreen() {
 
   // Verificar si una hora está reservada
   const isHoraReservada = (fecha: Date, hora: number, canchaId?: string): boolean => {
-    const fechaISO = fecha.toISOString().split('T')[0];
+    const fechaISO = formatLocalDateYMD(fecha);
     const reservasFiltradas = canchaId 
       ? reservas.filter((r) => r.cancha_id === canchaId)
       : filtrarReservasPorCancha(reservas);
     
     return reservasFiltradas.some((r) => {
-      const reservaFecha = new Date(r.fecha_hora);
-      const reservaFechaISO = reservaFecha.toISOString().split('T')[0];
-      const reservaHora = reservaFecha.getHours();
+      const reservaFechaISO = formatLocalDateYMD(r.fecha_hora);
+      const reservaHora = getHourInHN(r.fecha_hora);
       return reservaFechaISO === fechaISO && reservaHora === hora && r.estado !== 'cancelada';
     });
   };
 
   // Obtener la reserva en una hora específica
   const getReservaEnHora = (fecha: Date, hora: number, canchaId?: string): ReservaWithRelations | null => {
-    const fechaISO = fecha.toISOString().split('T')[0];
+    const fechaISO = formatLocalDateYMD(fecha);
     const reservasFiltradas = canchaId 
       ? reservas.filter((r) => r.cancha_id === canchaId)
       : filtrarReservasPorCancha(reservas);
     
     const reserva = reservasFiltradas.find((r) => {
-      const reservaFecha = new Date(r.fecha_hora);
-      const reservaFechaISO = reservaFecha.toISOString().split('T')[0];
-      const reservaHora = reservaFecha.getHours();
+      const reservaFechaISO = formatLocalDateYMD(r.fecha_hora);
+      const reservaHora = getHourInHN(r.fecha_hora);
       return reservaFechaISO === fechaISO && reservaHora === hora && r.estado !== 'cancelada';
     });
     return reserva || null;
@@ -453,7 +455,7 @@ export default function HomeScreen() {
   };
 
   const saveDate = () => {
-    setFormFecha(fechaSeleccionada.toISOString().split('T')[0]);
+    setFormFecha(formatLocalDateYMD(fechaSeleccionada));
     // Limpiar la hora seleccionada si la nueva fecha no tiene horas disponibles
     const horasDisponibles = getHorasDisponibles(fechaSeleccionada);
     if (horasDisponibles.length === 0) {
@@ -465,8 +467,8 @@ export default function HomeScreen() {
   const handleReservaPress = (reserva: ReservaWithRelations) => {
     setModalReserva(reserva);
     setFormCanchaId(reserva.cancha_id);
-    setFormFecha(new Date(reserva.fecha_hora).toISOString().split('T')[0]);
-    setFormHora(formatHora12(new Date(reserva.fecha_hora)));
+    setFormFecha(formatLocalDateYMD(reserva.fecha_hora));
+    setFormHora(formatHora12HN(reserva.fecha_hora));
     // No necesitamos establecer made_by_player ni estado ya que no se muestran en el modal
     setModalVisible(true);
   };
@@ -474,8 +476,8 @@ export default function HomeScreen() {
   const handleSlotPress = async (canchaId: string, fechaHora: Date) => {
     setModalReserva(null);
     setFormCanchaId(canchaId || '');
-    setFormFecha(fechaHora.toISOString().split('T')[0]);
-    setFormHora(formatHora12(fechaHora));
+    setFormFecha(formatLocalDateYMD(fechaHora));
+    setFormHora(formatHora12FromDate(fechaHora));
     // Las reservas creadas desde esta pantalla siempre son hechas por el administrador
     setFormMadeByPlayer(false);
     setFormEstado('pendiente');
@@ -506,20 +508,24 @@ export default function HomeScreen() {
       const [hour24, minute] = timeString.split(':');
 
       // Crear fecha/hora en hora local de Honduras
-      const fechaHora = new Date(`${formFecha}T${hour24}:${minute}:00`);
-      
+      const fechaHoraIso = localHNToUtcIso(
+        formFecha,
+        parseInt(hour24, 10),
+        parseInt(minute, 10)
+      );
+
       if (modalReserva) {
         // Actualizar reserva existente (solo fecha/hora y cancha, no estado ni made_by_player)
         await updateReserva(modalReserva.id, {
           cancha_id: formCanchaId,
-          fecha_hora: fechaHora.toISOString(),
+          fecha_hora: fechaHoraIso,
         });
         showSuccess('Éxito', 'Reserva actualizada correctamente');
       } else {
         // Crear nueva reserva (siempre made_by_player = false para reservas del administrador)
         await createReserva({
           cancha_id: formCanchaId,
-          fecha_hora: fechaHora.toISOString(),
+          fecha_hora: fechaHoraIso,
           made_by_player: false,
           user_id: undefined,
         });
@@ -568,6 +574,20 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        style={[styles.scanRecompensaButton, { backgroundColor: Colors.primary + '15', borderColor: Colors.primary }]}
+        onPress={() => router.push('/escanear-recompensa')}
+      >
+        <Ionicons name="qr-code-outline" size={22} color={Colors.primary} />
+        <View style={styles.scanRecompensaTextWrap}>
+          <Text style={[styles.scanRecompensaTitle, { color: colors.text }]}>Escanear recompensa</Text>
+          <Text style={[styles.scanRecompensaSubtitle, { color: colors.textSecondary }]}>
+            Canjeá el QR de un jugador al llegar a la cancha
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+      </TouchableOpacity>
 
       {/* Selector de cancha */}
       <View style={[styles.canchasContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
@@ -644,9 +664,7 @@ export default function HomeScreen() {
 
       {/* Calendario mensual */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       ) : (
         <ScrollView 
           style={styles.scrollView} 
@@ -1164,8 +1182,8 @@ export default function HomeScreen() {
               <ScrollView style={styles.datePickerScroll}>
                 <View style={styles.datePickerCalendar}>
                   {getFechasDisponibles().map((fecha) => {
-                    const fechaStr = fecha.toISOString().split('T')[0];
-                    const fechaFormStr = formFecha ? new Date(formFecha).toISOString().split('T')[0] : '';
+                    const fechaStr = formatLocalDateYMD(fecha);
+                    const fechaFormStr = formFecha || '';
                     const isSelected = fechaStr === fechaFormStr;
                     
                     return (
@@ -1251,6 +1269,26 @@ const styles = StyleSheet.create({
   notificationButton: {
     position: 'relative',
     padding: Spacing.xs,
+  },
+  scanRecompensaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  scanRecompensaTextWrap: { flex: 1 },
+  scanRecompensaTitle: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
+  },
+  scanRecompensaSubtitle: {
+    fontSize: Typography.fontSize.xs,
+    marginTop: 2,
   },
   badge: {
     position: 'absolute',

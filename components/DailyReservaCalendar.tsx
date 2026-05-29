@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, Dimensions, StyleSheet } from 'react-native';
+import { formatLocalDateYMD, getHourInHN, APP_TIMEZONE } from '../lib/fechaHora';
 import { Colors, Typography, Spacing } from '../constants/theme';
 import { ReservaWithRelations } from '../lib/reservas';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -51,23 +52,11 @@ export default function DailyReservaCalendar({
 
   // Obtener reservas para una hora específica
   const getReservasEnSlot = (hora: number): ReservaWithRelations[] => {
-    const diaYear = fecha.getFullYear();
-    const diaMonth = fecha.getMonth();
-    const diaDate = fecha.getDate();
+    const diaCalendario = formatLocalDateYMD(fecha);
 
     return reservas.filter((reserva) => {
-      const reservaFecha = new Date(reserva.fecha_hora);
-      
-      // Comparar año, mes y día directamente
-      const mismoDia =
-        reservaFecha.getFullYear() === diaYear &&
-        reservaFecha.getMonth() === diaMonth &&
-        reservaFecha.getDate() === diaDate;
-      
-      // Obtener la hora en hora local
-      const reservaHour = reservaFecha.getHours();
-      
-      // Verificar que la hora de inicio de la reserva esté en este slot
+      const mismoDia = formatLocalDateYMD(reserva.fecha_hora) === diaCalendario;
+      const reservaHour = getHourInHN(reserva.fecha_hora);
       return mismoDia && reservaHour === hora;
     });
   };
@@ -161,6 +150,7 @@ export default function DailyReservaCalendar({
                       {(reserva.estado === 'pendiente') && (
                         <Text style={[styles.reservaHora, { color: Colors.textInverse }]} numberOfLines={1}>
                           {new Date(reserva.fecha_hora).toLocaleTimeString('es-HN', {
+                            timeZone: APP_TIMEZONE,
                             hour: '2-digit',
                             minute: '2-digit',
                             hour12: true,

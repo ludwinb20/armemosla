@@ -18,7 +18,7 @@ interface ThemeProviderProps {
 }
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
-  const [theme, setThemeState] = useState<ThemeMode>('dark'); // Default es oscuro
+  const [theme, setThemeState] = useState<ThemeMode>('light');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

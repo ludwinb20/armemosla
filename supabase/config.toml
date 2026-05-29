@@ -1,0 +1,5 @@
+# Configuración mínima para Edge Functions (CLI local / deploy).
+# Ver: https://supabase.com/docs/guides/functions
+
+[functions.auto-completar-reservas]
+verify_jwt = false

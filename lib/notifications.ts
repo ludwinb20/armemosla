@@ -1,11 +1,28 @@
 import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { supabase } from './supabase';
+
+function getExpoProjectId(): string | undefined {
+  const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
+  return process.env.EXPO_PUBLIC_PROJECT_ID || extra?.eas?.projectId;
+}
+
+function isExpectedPushSetupError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes('aps-environment') || /simulator|Simulator/i.test(msg);
+}
 
 /**
  * Obtiene el token de notificaciones push del dispositivo actual
  */
 export async function getPushToken(): Promise<string | null> {
   try {
+    if (Platform.OS === 'ios' && !Device.isDevice) {
+      return null;
+    }
+
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
@@ -19,12 +36,21 @@ export async function getPushToken(): Promise<string | null> {
       return null;
     }
 
-    const token = await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PUBLIC_PROJECT_ID || undefined,
-    });
+    const projectId = getExpoProjectId();
+    if (!projectId) {
+      return null;
+    }
+
+    const token = await Notifications.getExpoPushTokenAsync({ projectId });
 
     return token.data;
   } catch (error) {
+    if (isExpectedPushSetupError(error)) {
+      if (__DEV__) {
+        console.warn('⚠️ [getPushToken] Push no disponible en este entorno (simulador o sin APNs).');
+      }
+      return null;
+    }
     console.error('❌ [getPushToken] Error:', error);
     return null;
   }

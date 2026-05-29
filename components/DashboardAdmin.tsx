@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../constants/theme';
 import { useThemeColors } from '../hooks/useThemeColors';
+import PlayerLoadingView from './lottie/PlayerLoadingView';
 import { getReservas, ReservaWithRelations } from '../lib/reservas';
 import { getComplejos, ComplejoWithFotos } from '../lib/complejos';
 import { getCanchas, CanchaWithRelations } from '../lib/canchas';
@@ -386,9 +387,7 @@ export default function DashboardAdmin() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       </SafeAreaView>
     );
   }

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { globalStyles } from '../styles/globalStyles';
 import { Colors } from '../constants/theme';
 import { hasUserType, getUserType } from '../lib/user';
+import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
 
 export default function Index() {
   const router = useRouter();
@@ -67,7 +68,7 @@ export default function Index() {
   if (loading) {
     return (
       <View style={[globalStyles.contentCentered, { backgroundColor: Colors.background }]}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <PlayerLoadingView message="" />
       </View>
     );
   }

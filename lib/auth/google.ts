@@ -1,6 +1,7 @@
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
 import { supabase } from '../supabase';
+import { getJwtPayload } from '../jwtPayload';
 
 /**
  * Configuración de Google Sign-In
@@ -11,7 +12,9 @@ export const configureGoogleSignIn = () => {
                           process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';
 
   if (!googleClientId) {
-    console.warn('⚠️ Google Client ID no configurado');
+    console.warn(
+      '⚠️ EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no configurado. Para Android+iOS con Supabase usa OAuth Web Client ID.'
+    );
     return;
   }
 
@@ -21,45 +24,71 @@ export const configureGoogleSignIn = () => {
   });
 };
 
+const ANDROID_GOOGLE_DEVELOPER_ERROR = '10';
+
+function mapGoogleSignInError(error: any): string {
+  if (error?.code === statusCodes.SIGN_IN_CANCELLED) {
+    return 'Inicio de sesión cancelado';
+  }
+  if (error?.code === statusCodes.IN_PROGRESS) {
+    return 'Inicio de sesión en progreso';
+  }
+  if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+    return 'Google Play Services no disponible';
+  }
+  if (
+    String(error?.code) === ANDROID_GOOGLE_DEVELOPER_ERROR ||
+    /DEVELOPER_ERROR|Developer error/i.test(String(error?.message ?? ''))
+  ) {
+    return (
+      'Google no reconoce esta compilación de Android (SHA). ' +
+      'Agrega SHA-1 y SHA-256 de debug/release en Firebase, descarga de nuevo google-services.json y recompila la app.'
+    );
+  }
+  return error?.message || 'Error al iniciar sesión con Google';
+}
+
 /**
  * Iniciar sesión con Google
  */
 export const signInWithGoogle = async () => {
   try {
     // Verificar Play Services (Android)
-    await GoogleSignin.hasPlayServices();
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
     // Obtener información de Google
-    const userInfo = await GoogleSignin.signIn();
+    const signInResult = await GoogleSignin.signIn();
+    const userInfo = (signInResult as any)?.data ?? signInResult;
+    const googleUser = userInfo?.user ?? null;
 
     // Obtener idToken (el tipo puede variar, usar as any si es necesario)
-    const idToken = (userInfo as any).data?.idToken || userInfo.idToken;
+    let idToken = (userInfo as any)?.idToken;
+    if (!idToken) {
+      const tokens = await GoogleSignin.getTokens();
+      idToken = tokens?.idToken;
+    }
 
     if (!idToken) {
       throw new Error('No se pudo obtener el token de Google');
     }
 
-    // Autenticar con Supabase
+    const idPayload = getJwtPayload(idToken);
+    const nonceInToken =
+      typeof idPayload?.nonce === 'string' ? idPayload.nonce : undefined;
+
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
       token: idToken,
+      ...(nonceInToken ? { nonce: nonceInToken } : {}),
     });
 
     if (error) {
       throw error;
     }
 
-    return { data, error: null };
+    return { data, error: null, googleUser };
   } catch (error: any) {
-    if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-      return { data: null, error: { message: 'Inicio de sesión cancelado' } };
-    } else if (error.code === statusCodes.IN_PROGRESS) {
-      return { data: null, error: { message: 'Inicio de sesión en progreso' } };
-    } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-      return { data: null, error: { message: 'Google Play Services no disponible' } };
-    } else {
-      return { data: null, error: { message: error.message || 'Error al iniciar sesión con Google' } };
-    }
+    return { data: null, error: { message: mapGoogleSignInError(error) }, googleUser: null };
   }
 };
 
@@ -93,8 +122,7 @@ export const getCurrentGoogleUser = async () => {
  */
 export const isSignedIn = async () => {
   try {
-    const isSignedIn = await GoogleSignin.isSignedIn();
-    return isSignedIn;
+    return GoogleSignin.hasPreviousSignIn();
   } catch (error) {
     return false;
   }

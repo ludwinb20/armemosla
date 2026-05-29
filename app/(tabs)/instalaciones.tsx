@@ -20,6 +20,7 @@ import { getComplejos, ComplejoWithFotos } from '../../lib/complejos';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 
 type ViewType = 'complejos' | 'canchas';
 
@@ -261,9 +262,7 @@ export default function InstalacionesScreen() {
 
       {/* Contenido */}
       {loading && isEmpty ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       ) : (
         <ScrollView
           style={styles.scrollView}

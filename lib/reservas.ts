@@ -7,14 +7,22 @@ export interface Reserva {
   user_id?: string;
   made_by_player: boolean;
   estado: 'pendiente' | 'completada' | 'cancelada';
+  canje_recompensa_id?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ReservaRivalInfo {
+  equipoNombre: string;
+  jugadorNombre?: string | null;
+  origen: 'piscina' | 'directo';
 }
 
 export interface ReservaWithRelations extends Reserva {
   cancha?: {
     id: string;
     nombre?: string;
+    precio_por_hora?: number;
     complejo?: {
       id: string;
       nombre: string;
@@ -24,23 +32,108 @@ export interface ReservaWithRelations extends Reserva {
     id: string;
     email?: string;
   };
+  /** Rival confirmado (piscina o reto directo aceptado). */
+  rival?: ReservaRivalInfo | null;
 }
 
-/**
- * Auto-completa reservas pendientes que ya pasaron su fecha_hora + 30 minutos
- * Esta función debe llamarse antes de consultar reservas para mantener el estado actualizado
- */
-export async function autoCompletarReservas(): Promise<void> {
-  try {
-    const { error } = await supabase.rpc('auto_completar_reservas');
-    if (error) {
-      console.error('❌ [autoCompletarReservas] Error:', error);
-      // No lanzar error, solo loguear, ya que esto es una función de mantenimiento
+async function enriquecerReservasConRival(
+  reservas: ReservaWithRelations[]
+): Promise<ReservaWithRelations[]> {
+  if (reservas.length === 0) return reservas;
+
+  const reservaIds = reservas.map((r) => r.id);
+  const rivalPorReservaId = new Map<string, ReservaRivalInfo>();
+
+  const { data: partidosPiscina, error: errPiscina } = await supabase
+    .from('partidos_abiertos')
+    .select(`
+      reserva_id,
+      solicitudes:solicitudes_partidos(
+        estado,
+        equipo_solicitante:equipos(nombre)
+      )
+    `)
+    .in('reserva_id', reservaIds)
+    .eq('estado', 'confirmado');
+
+  if (errPiscina) {
+    console.error('❌ [enriquecerReservasConRival] partidos:', errPiscina);
+  } else {
+    for (const partido of partidosPiscina || []) {
+      const solicitudes = (partido as { solicitudes?: { estado: string; equipo_solicitante?: { nombre?: string } }[] }).solicitudes || [];
+      const aceptada = solicitudes.find((s) => s.estado === 'aceptada');
+      const nombreEquipo = aceptada?.equipo_solicitante?.nombre;
+      if (partido.reserva_id && nombreEquipo) {
+        rivalPorReservaId.set(partido.reserva_id, {
+          equipoNombre: nombreEquipo,
+          origen: 'piscina',
+        });
+      }
     }
-  } catch (error: any) {
-    console.error('❌ [autoCompletarReservas] Error:', error);
-    // No lanzar error, solo loguear
   }
+
+  const pendientesRivalDirecto = reservaIds.filter((id) => !rivalPorReservaId.has(id));
+  if (pendientesRivalDirecto.length > 0) {
+    const { data: retosDirectos, error: errRetos } = await supabase
+      .from('retos_directos_jugador')
+      .select(`
+        reserva_id,
+        jugador_objetivo_id,
+        jugador_objetivo:profiles!retos_directos_jugador_jugador_objetivo_id_fkey(full_name)
+      `)
+      .in('reserva_id', pendientesRivalDirecto)
+      .eq('estado', 'aceptado');
+
+    if (errRetos) {
+      console.error('❌ [enriquecerReservasConRival] retos directos:', errRetos);
+    } else if (retosDirectos && retosDirectos.length > 0) {
+      const jugadorIds = [
+        ...new Set(
+          retosDirectos
+            .map((r) => r.jugador_objetivo_id as string)
+            .filter((id): id is string => Boolean(id))
+        ),
+      ];
+
+      const equipoPorJugadorId = new Map<string, string>();
+      if (jugadorIds.length > 0) {
+        const { data: membresias } = await supabase
+          .from('jugador_equipos')
+          .select('jugador_id, equipo:equipos(nombre)')
+          .in('jugador_id', jugadorIds);
+
+        for (const m of membresias || []) {
+          const nombre = (m as { equipo?: { nombre?: string } }).equipo?.nombre;
+          if (m.jugador_id && nombre && !equipoPorJugadorId.has(m.jugador_id)) {
+            equipoPorJugadorId.set(m.jugador_id, nombre);
+          }
+        }
+      }
+
+      for (const reto of retosDirectos) {
+        if (!reto.reserva_id || rivalPorReservaId.has(reto.reserva_id)) continue;
+        const perfil = reto as {
+          jugador_objetivo?: { full_name?: string | null };
+          jugador_objetivo_id?: string;
+        };
+        const nombreJugador = perfil.jugador_objetivo?.full_name ?? null;
+        const nombreEquipo =
+          (reto.jugador_objetivo_id && equipoPorJugadorId.get(reto.jugador_objetivo_id)) ||
+          (nombreJugador ? `Equipo de ${nombreJugador}` : 'Rival confirmado');
+
+        rivalPorReservaId.set(reto.reserva_id, {
+          equipoNombre: nombreEquipo,
+          jugadorNombre: nombreJugador,
+          origen: 'directo',
+        });
+      }
+    }
+  }
+
+  return reservas.map((reserva) => ({
+    ...reserva,
+    rival: rivalPorReservaId.get(reserva.id) ?? null,
+  }));
 }
 
 /**
@@ -55,9 +148,6 @@ export async function getReservas(
   canchaId?: string
 ): Promise<ReservaWithRelations[]> {
   try {
-    // Auto-completar reservas antes de consultar
-    await autoCompletarReservas();
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
 
@@ -291,43 +381,109 @@ export async function cancelarReserva(id: string): Promise<Reserva> {
   }
 }
 
+export const RESERVAS_JUGADOR_PAGE_SIZE = 8;
+
+export type ReservaEstadoFiltro = 'todas' | 'pendiente' | 'completada' | 'cancelada';
+
+const RESERVAS_JUGADOR_SELECT = `
+  *,
+  cancha:canchas!reservas_cancha_id_fkey (
+    id,
+    nombre,
+    precio_por_hora,
+    complejo:complejos!canchas_complejo_id_fkey (
+      id,
+      nombre
+    )
+  ),
+  usuario:profiles (
+    id,
+    email
+  )
+`;
+
+function filtrarReservasJugadorValidas(
+  reservas: ReservaWithRelations[] | null,
+  userId: string
+): ReservaWithRelations[] {
+  const validadas = (reservas || []).filter(
+    (r) => r.user_id === userId && r.made_by_player === true
+  );
+  if (validadas.length !== (reservas || []).length) {
+    console.warn(
+      '⚠️ [obtenerReservasJugador] Se filtraron reservas inconsistentes',
+      `Esperadas: ${reservas?.length || 0}, Válidas: ${validadas.length}`
+    );
+  }
+  return validadas;
+}
+
+/**
+ * Reservas del jugador paginadas (más recientes primero).
+ */
+export async function obtenerReservasJugadorPaginado(
+  offset: number,
+  limit: number = RESERVAS_JUGADOR_PAGE_SIZE,
+  estado: ReservaEstadoFiltro = 'todas'
+): Promise<{ items: ReservaWithRelations[]; hasMore: boolean }> {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    let query = supabase
+      .from('reservas')
+      .select(RESERVAS_JUGADOR_SELECT)
+      .eq('user_id', user.id)
+      .eq('made_by_player', true)
+      .order('fecha_hora', { ascending: false });
+
+    if (estado !== 'todas') {
+      query = query.eq('estado', estado);
+    }
+
+    const { data: reservas, error } = await query.range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('❌ [obtenerReservasJugadorPaginado] Error en consulta:', error);
+      throw error;
+    }
+
+    const reservasValidadas = filtrarReservasJugadorValidas(
+      (reservas || []) as ReservaWithRelations[],
+      user.id
+    );
+    const items = await enriquecerReservasConRival(reservasValidadas);
+
+    return {
+      items,
+      hasMore: (reservas || []).length === limit,
+    };
+  } catch (error: unknown) {
+    console.error('❌ [obtenerReservasJugadorPaginado] Error:', error);
+    throw error;
+  }
+}
+
 /**
  * Obtiene todas las reservas del jugador actual
  * Solo incluye reservas donde:
  * - user_id coincide con el usuario actual
  * - made_by_player = true (hechas como jugador, no como administrador)
- * 
+ *
  * Ordenadas por fecha_hora descendente (más recientes primero)
  */
 export async function obtenerReservasJugador(): Promise<ReservaWithRelations[]> {
   try {
-    await autoCompletarReservas();
-
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
 
-    // Nota: user.id de auth.users debería coincidir con profiles.id
-    // La tabla reservas.user_id hace referencia a profiles.id
     const { data: reservas, error } = await supabase
       .from('reservas')
-      .select(`
-        *,
-        cancha:canchas!reservas_cancha_id_fkey (
-          id,
-          nombre,
-          precio_por_hora,
-          complejo:complejos!canchas_complejo_id_fkey (
-            id,
-            nombre
-          )
-        ),
-        usuario:profiles (
-          id,
-          email
-        )
-      `)
-      // Filtrar solo reservas hechas por este usuario COMO JUGADOR
-      // No incluye reservas hechas por administradores (made_by_player = false)
+      .select(RESERVAS_JUGADOR_SELECT)
       .eq('user_id', user.id)
       .eq('made_by_player', true)
       .order('fecha_hora', { ascending: false });
@@ -337,21 +493,13 @@ export async function obtenerReservasJugador(): Promise<ReservaWithRelations[]> 
       throw error;
     }
 
-    // Validación adicional: filtrar cualquier reserva que no cumpla los criterios
-    // (por si acaso hay datos inconsistentes en la base de datos)
-    const reservasValidadas = (reservas || []).filter(
-      (r) => r.user_id === user.id && r.made_by_player === true
+    const reservasValidadas = filtrarReservasJugadorValidas(
+      (reservas || []) as ReservaWithRelations[],
+      user.id
     );
 
-    if (reservasValidadas.length !== (reservas || []).length) {
-      console.warn(
-        '⚠️ [obtenerReservasJugador] Se filtraron reservas inconsistentes',
-        `Esperadas: ${reservas?.length || 0}, Válidas: ${reservasValidadas.length}`
-      );
-    }
-
-    return reservasValidadas;
-  } catch (error: any) {
+    return enriquecerReservasConRival(reservasValidadas);
+  } catch (error: unknown) {
     console.error('❌ [obtenerReservasJugador] Error:', error);
     throw error;
   }

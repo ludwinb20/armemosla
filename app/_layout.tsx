@@ -2,7 +2,7 @@ import 'react-native-css-interop/jsx-runtime';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { StatusBar, Platform } from 'react-native';
+import { StatusBar, Platform, LogBox } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -12,6 +12,25 @@ import '../global.css';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../constants/theme';
+
+/**
+ * RN 0.81 marca como deprecado `SafeAreaView` en el paquete `react-native`; el aviso sale al **importar**
+ * ese getter (p. ej. alguna dependencia). Nuestro código usa solo `react-native-safe-area-context`.
+ * LogBox tapa el overlay; Metro sigue imprimiendo WARN hasta filtrar `console.warn`.
+ */
+if (__DEV__) {
+  LogBox.ignoreLogs(['SafeAreaView has been deprecated']);
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    const text = args
+      .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+      .join(' ');
+    if (text.includes('SafeAreaView has been deprecated')) {
+      return;
+    }
+    originalConsoleWarn.apply(console, args as []);
+  };
+}
 
 // Mantener la splash screen visible mientras se carga
 SplashScreen.preventAutoHideAsync();
@@ -87,7 +106,7 @@ console.error = (...args: any[]) => {
     }
     return;
   }
-  
+
   originalConsoleError.apply(console, args);
 };
 
@@ -132,6 +151,8 @@ function RootLayoutContent() {
             <Stack.Screen name="select-user-type" options={{ headerShown: false }} />
             <Stack.Screen name="complejo-form" options={{ headerShown: false }} />
             <Stack.Screen name="cancha-form" options={{ headerShown: false }} />
+            <Stack.Screen name="solicitud-chat" options={{ headerShown: false }} />
+            <Stack.Screen name="escanear-recompensa" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
           </SafeAreaView>

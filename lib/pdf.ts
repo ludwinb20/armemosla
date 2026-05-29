@@ -246,9 +246,15 @@ export async function generarFacturaPDF(
             <span class="totals-label">Comisión (10%):</span>
             <span class="totals-value">L ${factura.comision.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
+          ${(factura.total_descuentos_canje ?? 0) > 0 ? `
+          <div class="totals-row">
+            <span class="totals-label">Descuentos por canjes:</span>
+            <span class="totals-value" style="color: #155724">-L ${(factura.total_descuentos_canje ?? 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+          ` : ''}
           <div class="totals-row total-final">
             <span class="totals-label">Total a Pagar:</span>
-            <span class="totals-value">L ${factura.comision.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span class="totals-value">L ${(factura.comision_neta ?? factura.comision).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
         </div>
 

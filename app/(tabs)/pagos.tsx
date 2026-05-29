@@ -23,9 +23,11 @@ import {
   FacturaWithDetalles,
 } from '../../lib/pagos';
 import { generarYCompartirFacturaPDF } from '../../lib/pdf';
+import { obtenerCanjesMes, CanjeRecompensa } from '../../lib/canjes';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 import {
   getRModalBackdropProps,
   getRModalCenterSheetStyle,
@@ -53,6 +55,7 @@ export default function PagosScreen() {
   const [filtroAño, setFiltroAño] = useState(new Date().getFullYear());
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [nombreAdmin, setNombreAdmin] = useState<string>('');
+  const [canjesMes, setCanjesMes] = useState<CanjeRecompensa[]>([]);
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   useFocusEffect(
@@ -94,6 +97,13 @@ export default function PagosScreen() {
       
       setFacturaActual(factura);
       setHistorial(historialData);
+
+      if (factura) {
+        const canjes = await obtenerCanjesMes(factura.mes, factura.año);
+        setCanjesMes(canjes);
+      } else {
+        setCanjesMes([]);
+      }
     } catch (error: any) {
       console.error('Error al cargar datos:', error);
       showError('Error', 'No se pudieron cargar los datos de pagos');
@@ -125,6 +135,8 @@ export default function PagosScreen() {
       const detalle = await getFacturaById(factura.id);
       if (detalle) {
         setFacturaDetalle(detalle);
+        const canjes = await obtenerCanjesMes(factura.mes, factura.año);
+        setCanjesMes(canjes);
         setShowDetalleModal(true);
       }
     } catch (error: any) {
@@ -194,9 +206,7 @@ export default function PagosScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       </SafeAreaView>
     );
   }
@@ -237,10 +247,26 @@ export default function PagosScreen() {
               </View>
               <View style={styles.resumenRow}>
                 <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión (10%)</Text>
-                <Text style={[styles.resumenValue, { color: getEstadoColor(facturaActual.estado_pago) }]}>
+                <Text style={[styles.resumenValue, { color: colors.text }]}>
                   {formatCurrency(facturaActual.comision)}
                 </Text>
               </View>
+              {(facturaActual.total_descuentos_canje ?? 0) > 0 && (
+                <>
+                  <View style={styles.resumenRow}>
+                    <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Descuentos por canjes</Text>
+                    <Text style={[styles.resumenValue, { color: Colors.success }]}>
+                      -{formatCurrency(facturaActual.total_descuentos_canje ?? 0)}
+                    </Text>
+                  </View>
+                  <View style={styles.resumenRow}>
+                    <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión neta</Text>
+                    <Text style={[styles.resumenValue, { color: getEstadoColor(facturaActual.estado_pago), fontWeight: '700' }]}>
+                      {formatCurrency(facturaActual.comision_neta ?? facturaActual.comision)}
+                    </Text>
+                  </View>
+                </>
+              )}
               <View style={[styles.resumenRow, styles.resumenRowLast]}>
                 <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Estado</Text>
                 <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(facturaActual.estado_pago) + '20' }]}>
@@ -280,6 +306,42 @@ export default function PagosScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+          </View>
+        )}
+
+        {canjesMes.length > 0 && facturaActual && (
+          <View style={styles.historialContainer}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Canjes de recompensas</Text>
+            <Text style={[styles.periodoText, { color: colors.textSecondary }]}>
+              {MESES[facturaActual.mes - 1]} {facturaActual.año}
+            </Text>
+            {canjesMes.map((canje) => (
+              <View
+                key={canje.id}
+                style={[styles.historialCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              >
+                <View style={styles.historialCardHeader}>
+                  <View>
+                    <Text style={[styles.historialPeriodo, { color: colors.text }]}>{canje.logro_titulo}</Text>
+                    <Text style={[styles.historialFecha, { color: colors.textSecondary }]}>
+                      {canje.jugador?.full_name || canje.jugador?.email || 'Jugador'} · {canje.cancha?.nombre}
+                    </Text>
+                  </View>
+                  <Text style={[styles.historialValue, { color: Colors.success }]}>
+                    -{formatCurrency(canje.monto_descontado)}
+                  </Text>
+                </View>
+                <Text style={[styles.historialFecha, { color: colors.textSecondary }]}>
+                  {new Date(canje.created_at).toLocaleDateString('es-HN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+              </View>
+            ))}
           </View>
         )}
 
@@ -437,10 +499,27 @@ export default function PagosScreen() {
 
                 <View style={styles.detalleSection}>
                   <Text style={[styles.detalleLabel, { color: colors.textSecondary }]}>Comisión (10%)</Text>
-                  <Text style={[styles.detalleValue, { color: getEstadoColor(facturaDetalle.estado_pago) }]}>
+                  <Text style={[styles.detalleValue, { color: colors.text }]}>
                     {formatCurrency(facturaDetalle.comision)}
                   </Text>
                 </View>
+
+                {(facturaDetalle.total_descuentos_canje ?? 0) > 0 && (
+                  <>
+                    <View style={styles.detalleSection}>
+                      <Text style={[styles.detalleLabel, { color: colors.textSecondary }]}>Descuentos por canjes</Text>
+                      <Text style={[styles.detalleValue, { color: Colors.success }]}>
+                        -{formatCurrency(facturaDetalle.total_descuentos_canje ?? 0)}
+                      </Text>
+                    </View>
+                    <View style={styles.detalleSection}>
+                      <Text style={[styles.detalleLabel, { color: colors.textSecondary }]}>Comisión neta</Text>
+                      <Text style={[styles.detalleValue, { color: Colors.primary, fontWeight: '700' }]}>
+                        {formatCurrency(facturaDetalle.comision_neta ?? facturaDetalle.comision)}
+                      </Text>
+                    </View>
+                  </>
+                )}
 
                 <View style={styles.detalleSection}>
                   <Text style={[styles.detalleLabel, { color: colors.textSecondary }]}>Estado</Text>
@@ -450,6 +529,33 @@ export default function PagosScreen() {
                     </Text>
                   </View>
                 </View>
+
+                {canjesMes.length > 0 && (
+                  <View style={styles.detalleSection}>
+                    <Text style={[styles.detalleSectionTitle, { color: colors.text }]}>Canjes de recompensas</Text>
+                    {canjesMes.map((canje) => (
+                      <View
+                        key={canje.id}
+                        style={[styles.detalleCanchaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                      >
+                        <Text style={[styles.detalleCanchaNombre, { color: colors.text }]}>
+                          {canje.logro_titulo}
+                        </Text>
+                        <Text style={[styles.detalleCanchaComplejo, { color: colors.textSecondary }]}>
+                          {canje.jugador?.full_name || canje.jugador?.email || 'Jugador'} · {canje.cancha?.nombre || 'Cancha'}
+                        </Text>
+                        <View style={styles.detalleCanchaRow}>
+                          <Text style={[styles.detalleCanchaLabel, { color: colors.textSecondary }]}>
+                            {new Date(canje.created_at).toLocaleDateString('es-HN')}
+                          </Text>
+                          <Text style={[styles.detalleCanchaValue, { color: Colors.success }]}>
+                            -{formatCurrency(canje.monto_descontado)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
 
                 {facturaDetalle.detalles && facturaDetalle.detalles.length > 0 && (
                   <View style={styles.detalleSection}>

@@ -7,7 +7,7 @@
 
 export type ThemeMode = 'dark' | 'light';
 
-// Paleta de colores para modo oscuro (default)
+// Paleta de colores para modo oscuro
 export const darkColors = {
   // Colores principales - Verde logo (#00C56E)
   primary: '#00C56E', // Verde logo principal
@@ -105,11 +105,11 @@ export const lightColors = {
   overlayLight: 'rgba(0, 0, 0, 0.3)',
 };
 
-// Exportar Colors como dark por defecto (para compatibilidad con código existente)
-export const Colors = darkColors;
+// Exportar Colors como light por defecto (para compatibilidad con código existente)
+export const Colors = lightColors;
 
 // Función para obtener colores según el tema
-export function getColors(theme: ThemeMode = 'dark') {
+export function getColors(theme: ThemeMode = 'light') {
   return theme === 'light' ? lightColors : darkColors;
 }
 

@@ -12,6 +12,7 @@ type CardDef = {
   title: string;
   description: string;
   onPress: () => void;
+  primary?: boolean;
 };
 
 export default function ArmemoslaScreen() {
@@ -22,37 +23,17 @@ export default function ArmemoslaScreen() {
       key: 'apartar',
       icon: 'calendar-outline',
       title: 'Apartar cancha',
-      description:
-        'Reservá la cancha sin publicar nada en la piscina (si ya tenés rival o solo querés el turno).',
+      description: 'Reservá el turno si ya tenés rival o solo querés asegurar la cancha.',
       onPress: () => router.push({ pathname: '/(tabs)/armemosla/buscar', params: { flow: 'solo' } }),
+      primary: true,
     },
     {
       key: 'apartar-rival',
-      icon: 'football-outline',
-      title: 'Apartar cancha y buscar rival',
-      description:
-        'Después de reservar, publicás tu partido en la piscina para que otros equipos puedan pedirte reto.',
-      onPress: () => router.push({ pathname: '/(tabs)/armemosla/buscar', params: { flow: 'con_rival' } }),
-    },
-    {
-      key: 'rival-reserva',
-      icon: 'ticket-outline',
-      title: 'Buscar rival para una cancha ya apartada',
-      description:
-        'Elegí una reserva pendiente y sumala a la piscina si todavía necesitás contrincante.',
-      onPress: () => router.push('/(tabs)/armemosla/rival-desde-reserva'),
-    },
-    {
-      key: 'solo-rival',
       icon: 'people-outline',
-      title: 'Buscar rival',
-      description:
-        'Entrá a la piscina: partidos publicados por otros. Pedí reto con tu equipo; si te aceptan, ese partido deja de listarse.',
-      onPress: () =>
-        router.push({
-          pathname: '/(tabs)/armemosla/buscar-rival',
-          params: { initialTab: 'buscar-partidos' },
-        }),
+      title: 'Apartar cancha y buscar rival',
+      description: 'Reservás y publicás tu partido para que otros equipos te soliciten jugar.',
+      onPress: () => router.push({ pathname: '/(tabs)/armemosla/buscar', params: { flow: 'con_rival' } }),
+      primary: true,
     },
   ];
 
@@ -61,7 +42,7 @@ export default function ArmemoslaScreen() {
       <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
         <Text style={[styles.title, { color: colors.text }]}>Armemosla</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Elige cómo quieres jugar
+          Reservá cancha o unite a un partido que busca rival
         </Text>
       </View>
 
@@ -74,7 +55,11 @@ export default function ArmemoslaScreen() {
           <TouchableOpacity
             key={card.key}
             activeOpacity={0.85}
-            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.card,
+              card.primary && styles.cardPrimary,
+              { backgroundColor: colors.surface, borderColor: card.primary ? Colors.primary + '50' : colors.border },
+            ]}
             onPress={card.onPress}
           >
             <View style={[styles.cardIconWrap, { backgroundColor: Colors.primary + '18' }]}>
@@ -89,15 +74,24 @@ export default function ArmemoslaScreen() {
             <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
           </TouchableOpacity>
         ))}
+
+        <TouchableOpacity
+          style={styles.secondaryLink}
+          onPress={() => router.push('/(tabs)/armemosla/buscar-rival')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="search-outline" size={18} color={Colors.primary} />
+          <Text style={[styles.secondaryLinkText, { color: Colors.primary }]}>
+            Ver partidos que buscan rival
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
@@ -112,9 +106,7 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.sm,
     marginTop: Spacing.xs,
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.md,
     paddingBottom: Spacing.xxl,
@@ -130,6 +122,9 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     ...Shadows.sm,
   },
+  cardPrimary: {
+    borderWidth: 1.5,
+  },
   cardIconWrap: {
     width: 52,
     height: 52,
@@ -137,17 +132,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cardTextWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
+  cardTextWrap: { flex: 1, minWidth: 0 },
   cardTitle: {
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.bold,
     marginBottom: Spacing.xs,
   },
-  cardDescription: {
-    fontSize: Typography.fontSize.sm,
-    lineHeight: 20,
+  cardDescription: { fontSize: Typography.fontSize.sm, lineHeight: 20 },
+  secondaryLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.lg,
+    marginTop: Spacing.sm,
+  },
+  secondaryLinkText: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
   },
 });

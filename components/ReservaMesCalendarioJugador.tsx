@@ -6,7 +6,11 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { Spacing, BorderRadius, Typography, Colors } from '../constants/theme';
-import { startOfToday, endOfBookingWindow } from '../lib/bookingWindow';
+import {
+  startOfToday,
+  endOfBookingWindow,
+  getEarliestAllowedHourToday,
+} from '../lib/bookingWindow';
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const NOMBRES_MESES = [
@@ -63,11 +67,26 @@ export default function ReservaMesCalendarioJugador({
   const puedeMesAnterior = startMesVisible.getTime() > startMinMonth.getTime();
   const puedeMesSiguiente = startMesVisible.getTime() < startMaxMonth.getTime();
 
+  const esEsteDiaEsHoy = (dia: number): boolean => {
+    const hoy = new Date();
+    return (
+      dia === hoy.getDate() &&
+      mesVisible.getMonth() === hoy.getMonth() &&
+      mesVisible.getFullYear() === hoy.getFullYear()
+    );
+  };
+
   const esDiaDisabled = (dia: number): boolean => {
     const fecha = new Date(mesVisible.getFullYear(), mesVisible.getMonth(), dia);
     fecha.setHours(0, 0, 0, 0);
     const t = fecha.getTime();
-    return t < startOfDay(minDate).getTime() || t > startOfDay(maxDate).getTime();
+    if (t < startOfDay(minDate).getTime() || t > startOfDay(maxDate).getTime()) {
+      return true;
+    }
+    if (esEsteDiaEsHoy(dia) && getEarliestAllowedHourToday() === null) {
+      return true;
+    }
+    return false;
   };
 
   const esSeleccionado = (dia: number): boolean => {
@@ -75,15 +94,6 @@ export default function ReservaMesCalendarioJugador({
       dia === value.getDate() &&
       mesVisible.getMonth() === value.getMonth() &&
       mesVisible.getFullYear() === value.getFullYear()
-    );
-  };
-
-  const esHoy = (dia: number): boolean => {
-    const hoy = new Date();
-    return (
-      dia === hoy.getDate() &&
-      mesVisible.getMonth() === hoy.getMonth() &&
-      mesVisible.getFullYear() === hoy.getFullYear()
     );
   };
 
@@ -155,8 +165,34 @@ export default function ReservaMesCalendarioJugador({
         {diasMes.map((dia) => {
           const disabled = esDiaDisabled(dia);
           const sel = esSeleccionado(dia);
-          const hoy = esHoy(dia);
-          const tieneFoco = sel || (hoy && !sel);
+
+          const estiloDia = (() => {
+            if (disabled) {
+              return {
+                backgroundColor: colors.background,
+                borderColor: colors.borderLight,
+                borderWidth: 1,
+                textColor: colors.textSecondary,
+                fontWeight: Typography.fontWeight.medium as '500',
+              };
+            }
+            if (sel) {
+              return {
+                backgroundColor: Colors.primary + '33',
+                borderColor: Colors.primary,
+                borderWidth: 2,
+                textColor: Colors.primary,
+                fontWeight: Typography.fontWeight.bold as '700',
+              };
+            }
+            return {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              borderWidth: 1,
+              textColor: colors.text,
+              fontWeight: Typography.fontWeight.medium as '500',
+            };
+          })();
 
           return (
             <TouchableOpacity
@@ -164,17 +200,9 @@ export default function ReservaMesCalendarioJugador({
               style={[
                 styles.dia,
                 {
-                  backgroundColor: disabled
-                    ? colors.background
-                    : tieneFoco
-                      ? Colors.primary + '20'
-                      : colors.surface,
-                  borderColor: disabled
-                    ? colors.borderLight
-                    : tieneFoco
-                      ? Colors.primary
-                      : colors.border,
-                  borderWidth: tieneFoco && !disabled ? 2 : 1,
+                  backgroundColor: estiloDia.backgroundColor,
+                  borderColor: estiloDia.borderColor,
+                  borderWidth: estiloDia.borderWidth,
                   opacity: disabled ? 0.38 : 1,
                 },
               ]}
@@ -195,14 +223,8 @@ export default function ReservaMesCalendarioJugador({
                 style={[
                   styles.diaNumero,
                   {
-                    color: disabled
-                      ? colors.textSecondary
-                      : tieneFoco
-                        ? Colors.primary
-                        : colors.text,
-                    fontWeight: tieneFoco && !disabled
-                      ? Typography.fontWeight.bold
-                      : Typography.fontWeight.medium,
+                    color: estiloDia.textColor,
+                    fontWeight: estiloDia.fontWeight,
                   },
                 ]}
               >

@@ -14,7 +14,23 @@
       },
       "oauth_client": [
         {
-          "client_id": "746084376004-f4s4827po9aomal6bo1neo4no05mh4mo.apps.googleusercontent.com",
+          "client_id": "746084376004-a7o83lq0suj6aahlr30tndijbdoacdrg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "746084376004-tetngloobvbvlfdb9tl252ptk75uv6s0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.app",
+            "certificate_hash": "9a2ecb7fa8560f933be83d68570d939115a531f2"
+          }
+        },
+        {
+          "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
@@ -27,8 +43,15 @@
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "746084376004-f4s4827po9aomal6bo1neo4no05mh4mo.apps.googleusercontent.com",
+              "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "746084376004-n03tclsu74k8506rm34smag92ln8lri1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.armemosla.app"
+              }
             }
           ]
         }

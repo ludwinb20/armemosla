@@ -20,6 +20,8 @@ import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../consta
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
+import PlayerEmptyState from '../../components/lottie/PlayerEmptyState';
 import { 
   getCurrentProfile, 
   updateProfile, 
@@ -157,6 +159,19 @@ export default function PerfilScreen() {
     setShowChangeTypeModal(true);
   };
 
+  const handleOpenEquipos = async () => {
+    try {
+      setLoading(true);
+      const equiposData = await obtenerEquiposJugador();
+      setEquipos(equiposData);
+      setShowEquiposModal(true);
+    } catch (error: any) {
+      showError('Error', error.message || 'No se pudieron cargar tus equipos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleConfirmChangeType = async () => {
     if (!profile) return;
 
@@ -204,10 +219,7 @@ export default function PerfilScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Cargando perfil...</Text>
-        </View>
+        <PlayerLoadingView message="Cargando perfil..." />
       </SafeAreaView>
     );
   }
@@ -283,6 +295,22 @@ export default function PerfilScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
+
+          {userType === 'Jugador' && (
+            <TouchableOpacity
+              style={[styles.menuItem, { backgroundColor: colors.surface }]}
+              onPress={handleOpenEquipos}
+            >
+              <Ionicons name="people-outline" size={24} color={Colors.primary} />
+              <View style={styles.menuItemContent}>
+                <Text style={[styles.menuText, { color: colors.text }]}>Mis Equipos</Text>
+                <Text style={[styles.menuSubtext, { color: colors.textSecondary }]}>
+                  Crea y administra tus equipos (nombre obligatorio, escudo opcional)
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
 
           <View style={[styles.menuItem, { backgroundColor: colors.surface, justifyContent: 'space-between' }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
@@ -515,12 +543,12 @@ export default function PerfilScreen() {
                 showsVerticalScrollIndicator
               >
                 {equipos.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <Ionicons name="people-outline" size={48} color={colors.textSecondary} />
-                    <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                      No tienes equipos. Crea uno nuevo.
-                    </Text>
-                  </View>
+                  <PlayerEmptyState
+                    variant="team"
+                    title="Sin equipos"
+                    text="No tenés equipos. Creá uno nuevo."
+                    compact
+                  />
                 ) : (
                   equipos.map((equipo) => (
                     <View
@@ -538,11 +566,6 @@ export default function PerfilScreen() {
                         <View style={styles.equipoInfo}>
                           <View style={styles.equipoNombreRow}>
                             <Text style={[styles.equipoNombre, { color: colors.text }]}>{equipo.nombre}</Text>
-                            {equipo.es_principal && (
-                              <View style={[styles.principalBadge, { backgroundColor: Colors.primary + '20' }]}>
-                                <Text style={[styles.principalBadgeText, { color: Colors.primary }]}>Principal</Text>
-                              </View>
-                            )}
                           </View>
                         </View>
                       </View>
@@ -606,15 +629,26 @@ export default function PerfilScreen() {
               <View style={styles.modalFooter}>
                 <TouchableOpacity
                   style={[styles.modalButton, { backgroundColor: Colors.primary }]}
+                  disabled={equipos.length > 0}
                   onPress={() => {
+                    if (equipos.length > 0) {
+                      showError('Límite alcanzado', 'Solo puedes tener un equipo. Edita el actual para modificarlo.');
+                      return;
+                    }
                     setEquipoEditando(null);
                     setFormEquipoNombre('');
                     setFormEquipoLogoUri(null);
                     setShowEquipoForm(true);
                   }}
                 >
-                  <Ionicons name="add-circle-outline" size={20} color={Colors.textInverse} />
-                  <Text style={styles.modalButtonTextSave}>Crear Equipo</Text>
+                  <Ionicons
+                    name={equipos.length > 0 ? 'lock-closed-outline' : 'add-circle-outline'}
+                    size={20}
+                    color={Colors.textInverse}
+                  />
+                  <Text style={styles.modalButtonTextSave}>
+                    {equipos.length > 0 ? '1 equipo por usuario' : 'Crear Equipo'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -709,7 +743,8 @@ export default function PerfilScreen() {
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSave, { backgroundColor: Colors.primary }]}
                   onPress={async () => {
-                    if (!formEquipoNombre.trim()) {
+                    const nombreLimpio = formEquipoNombre.trim();
+                    if (!nombreLimpio) {
                       showError('Error', 'El nombre es requerido');
                       return;
                     }
@@ -731,12 +766,12 @@ export default function PerfilScreen() {
 
                       if (equipoEditando) {
                         await actualizarEquipo(equipoEditando.id, {
-                          nombre: formEquipoNombre,
+                          nombre: nombreLimpio,
                           logo_url: logoUrl,
                         });
                         showSuccess('Éxito', 'Equipo actualizado correctamente');
                       } else {
-                        await crearEquipo(formEquipoNombre, logoUrl);
+                        await crearEquipo(nombreLimpio, logoUrl);
                         showSuccess('Éxito', 'Equipo creado correctamente');
                       }
 
@@ -1034,15 +1069,6 @@ const styles = StyleSheet.create({
   },
   equipoNombre: {
     fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-  },
-  principalBadge: {
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  principalBadgeText: {
-    fontSize: Typography.fontSize.xs,
     fontWeight: Typography.fontWeight.bold,
   },
   equipoActions: {

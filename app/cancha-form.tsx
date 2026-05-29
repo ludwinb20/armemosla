@@ -19,6 +19,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, BorderRadius, Shadows, Typography } from '../constants/theme';
+import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
 import {
   getCanchaById,
   createCancha,
@@ -370,9 +371,7 @@ export default function CanchaFormScreen() {
   if (loadingData) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       </SafeAreaView>
     );
   }
@@ -382,9 +381,7 @@ export default function CanchaFormScreen() {
     if (!canchaData) {
       return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-          </View>
+          <PlayerLoadingView style={styles.loadingContainer} />
         </SafeAreaView>
       );
     }

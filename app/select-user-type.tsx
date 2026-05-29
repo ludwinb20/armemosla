@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +14,7 @@ import { Logo } from '../components/Logo';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import CustomAlert from '../components/CustomAlert';
 import { Ionicons } from '@expo/vector-icons';
+import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
 
 type UserType = 'Jugador' | 'Administrador de Cancha';
 
@@ -177,13 +177,19 @@ export default function SelectUserTypeScreen() {
           disabled={!selectedType || loading}
           activeOpacity={0.8}
         >
-          {loading ? (
-            <ActivityIndicator color={Colors.textInverse} size="small" />
-          ) : (
-            <Text style={styles.continueButtonText}>Continuar</Text>
-          )}
+          <Text style={styles.continueButtonText}>Continuar</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <PlayerLoadingView
+            message="Configurando tu cuenta..."
+            messageStyle={styles.loadingOverlayMessage}
+            style={styles.loadingOverlayContent}
+          />
+        </View>
+      )}
 
       {/* Custom Alert */}
       <CustomAlert
@@ -307,6 +313,20 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.semibold,
     color: Colors.textInverse,
     textAlign: 'center',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  loadingOverlayContent: {
+    flex: 0,
+    padding: Spacing.lg,
+  },
+  loadingOverlayMessage: {
+    color: '#FFFFFF',
   },
 });
 

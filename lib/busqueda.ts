@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getDiaSemanaHN, getTimeHMInHN } from './fechaHora';
 
 export interface CanchaBusqueda {
   id: string;
@@ -76,6 +77,113 @@ function toRad(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+type FotoItem = { id: string; foto_url: string; orden: number };
+
+const BATCH_SIZE = 100;
+
+async function obtenerFotosPorCanchas(canchaIds: string[]): Promise<Map<string, FotoItem[]>> {
+  const map = new Map<string, FotoItem[]>();
+  if (canchaIds.length === 0) return map;
+
+  for (let i = 0; i < canchaIds.length; i += BATCH_SIZE) {
+    const chunk = canchaIds.slice(i, i + BATCH_SIZE);
+    const { data: fotos } = await supabase
+      .from('cancha_fotos')
+      .select('id, foto_url, orden, cancha_id')
+      .in('cancha_id', chunk)
+      .order('orden', { ascending: true });
+
+    for (const foto of fotos || []) {
+      const list = map.get(foto.cancha_id) || [];
+      list.push({ id: foto.id, foto_url: foto.foto_url, orden: foto.orden });
+      map.set(foto.cancha_id, list);
+    }
+  }
+
+  return map;
+}
+
+export async function obtenerFotosPorComplejos(
+  complejoIds: string[]
+): Promise<Map<string, FotoItem[]>> {
+  const map = new Map<string, FotoItem[]>();
+  if (complejoIds.length === 0) return map;
+
+  for (let i = 0; i < complejoIds.length; i += BATCH_SIZE) {
+    const chunk = complejoIds.slice(i, i + BATCH_SIZE);
+    const { data: fotos } = await supabase
+      .from('complejo_fotos')
+      .select('id, foto_url, orden, complejo_id')
+      .in('complejo_id', chunk)
+      .order('orden', { ascending: true });
+
+    for (const foto of fotos || []) {
+      const list = map.get(foto.complejo_id) || [];
+      list.push({ id: foto.id, foto_url: foto.foto_url, orden: foto.orden });
+      map.set(foto.complejo_id, list);
+    }
+  }
+
+  return map;
+}
+
+async function obtenerDisponibilidadPorCanchas(
+  canchaIds: string[],
+  fechaHora: string
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  if (canchaIds.length === 0) return result;
+
+  const fecha = new Date(fechaHora);
+  const fechaFin = new Date(fecha.getTime() + 60 * 60 * 1000);
+  const diaSemana = getDiaSemanaHN(fechaHora);
+  const hora = getTimeHMInHN(fechaHora);
+
+  for (const id of canchaIds) {
+    result.set(id, true);
+  }
+
+  const reservadas = new Set<string>();
+  const horarioPorCancha = new Map<string, { hora_inicio: string; hora_fin: string }>();
+
+  for (let i = 0; i < canchaIds.length; i += BATCH_SIZE) {
+    const chunk = canchaIds.slice(i, i + BATCH_SIZE);
+
+    const [{ data: disponibilidades }, { data: reservas }] = await Promise.all([
+      supabase
+        .from('cancha_disponibilidad')
+        .select('cancha_id, hora_inicio, hora_fin')
+        .in('cancha_id', chunk)
+        .eq('dia_semana', diaSemana),
+      supabase
+        .from('reservas')
+        .select('cancha_id')
+        .in('cancha_id', chunk)
+        .eq('estado', 'pendiente')
+        .gte('fecha_hora', fecha.toISOString())
+        .lt('fecha_hora', fechaFin.toISOString()),
+    ]);
+
+    for (const disp of disponibilidades || []) {
+      horarioPorCancha.set(disp.cancha_id, disp);
+    }
+    for (const reserva of reservas || []) {
+      reservadas.add(reserva.cancha_id);
+    }
+  }
+
+  for (const id of canchaIds) {
+    const horario = horarioPorCancha.get(id);
+    if (horario && (hora < horario.hora_inicio || hora >= horario.hora_fin)) {
+      result.set(id, false);
+    } else if (reservadas.has(id)) {
+      result.set(id, false);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Verifica si una cancha está disponible en una fecha/hora específica
  */
@@ -85,8 +193,7 @@ export async function obtenerDisponibilidadCancha(
 ): Promise<boolean> {
   try {
     const fecha = new Date(fechaHora);
-    const fechaFin = new Date(fecha);
-    fechaFin.setHours(fechaFin.getHours() + 1); // Las reservas duran 1 hora
+    const fechaFin = new Date(fecha.getTime() + 60 * 60 * 1000);
 
     // Verificar que la cancha esté activa
     const { data: cancha, error: canchaError } = await supabase
@@ -106,8 +213,8 @@ export async function obtenerDisponibilidadCancha(
     }
 
     // Verificar disponibilidad por horario de la cancha
-    const diaSemana = fecha.getDay() === 0 ? 6 : fecha.getDay() - 1; // Convertir: 0=Domingo -> 6, 1-6=Lunes-Sábado
-    const hora = fecha.toTimeString().slice(0, 5); // HH:MM
+    const diaSemana = getDiaSemanaHN(fechaHora);
+    const hora = getTimeHMInHN(fechaHora);
 
     const { data: disponibilidad } = await supabase
       .from('cancha_disponibilidad')
@@ -179,27 +286,15 @@ export async function buscarCanchasPorUbicacion(
       .eq('activo', true)
       .eq('complejos.activo', true);
 
-    // Obtener fotos de canchas
-    const canchasConFotos = await Promise.all(
-      (canchas || []).map(async (cancha) => {
-        const { data: fotos } = await supabase
-          .from('cancha_fotos')
-          .select('id, foto_url, orden')
-          .eq('cancha_id', cancha.id)
-          .order('orden', { ascending: true });
-        return { ...cancha, fotos: fotos || [] };
-      })
-    );
-
     if (error) throw error;
-    if (!canchasConFotos) return [];
+    if (!canchas) return [];
 
-    // Filtrar y calcular distancias
-    const resultados: CanchaBusqueda[] = [];
+    type Candidata = { cancha: (typeof canchas)[number]; distancia: number };
+    const candidatas: Candidata[] = [];
 
-    for (const cancha of canchasConFotos) {
+    for (const cancha of canchas) {
       const complejo = cancha.complejo as any;
-      
+
       if (!complejo.activo || !complejo.direccion_lat || !complejo.direccion_lng) {
         continue;
       }
@@ -211,23 +306,30 @@ export async function buscarCanchasPorUbicacion(
         parseFloat(complejo.direccion_lng)
       );
 
-      // Filtrar por radio
       if (distancia > radioKm) {
         continue;
       }
 
-      // Verificar disponibilidad
-      const disponible = await obtenerDisponibilidadCancha(cancha.id, fechaHora);
+      candidatas.push({ cancha, distancia });
+    }
 
-      resultados.push({
+    const canchaIds = candidatas.map((c) => c.cancha.id);
+    const [fotosMap, disponibilidadMap] = await Promise.all([
+      obtenerFotosPorCanchas(canchaIds),
+      obtenerDisponibilidadPorCanchas(canchaIds, fechaHora),
+    ]);
+
+    const resultados: CanchaBusqueda[] = candidatas.map(({ cancha, distancia }) => {
+      const complejo = cancha.complejo as any;
+      return {
         id: cancha.id,
         nombre: cancha.nombre,
         precio_por_hora: parseFloat(cancha.precio_por_hora),
         jugadores_por_equipo: cancha.jugadores_por_equipo,
         activo: cancha.activo,
         distancia,
-        disponible,
-        fotos: cancha.fotos,
+        disponible: disponibilidadMap.get(cancha.id) ?? false,
+        fotos: fotosMap.get(cancha.id) || [],
         complejo: {
           id: complejo.id,
           nombre: complejo.nombre,
@@ -235,8 +337,8 @@ export async function buscarCanchasPorUbicacion(
           direccion_lat: parseFloat(complejo.direccion_lat),
           direccion_lng: parseFloat(complejo.direccion_lng),
         },
-      });
-    }
+      };
+    });
 
     // Ordenar por distancia
     resultados.sort((a, b) => (a.distancia || 0) - (b.distancia || 0));
@@ -296,29 +398,20 @@ export async function buscarCanchasPorFiltros(
     if (error) throw error;
     if (!canchas) return [];
 
-    // Obtener fotos de canchas
-    const canchasConFotos = await Promise.all(
-      canchas.map(async (cancha) => {
-        const { data: fotos } = await supabase
-          .from('cancha_fotos')
-          .select('id, foto_url, orden')
-          .eq('cancha_id', cancha.id)
-          .order('orden', { ascending: true });
-        return { ...cancha, fotos: fotos || [] };
-      })
-    );
+    type Candidata = {
+      cancha: (typeof canchas)[number];
+      distancia?: number;
+    };
+    const candidatas: Candidata[] = [];
 
-    let resultados: CanchaBusqueda[] = [];
-
-    for (const cancha of canchasConFotos) {
+    for (const cancha of canchas) {
       const complejo = cancha.complejo as any;
 
-      // Filtrar por nombre (complejo o cancha)
       if (filtros.nombre) {
         const nombreBusqueda = filtros.nombre.toLowerCase();
         const nombreComplejo = complejo.nombre?.toLowerCase() || '';
         const nombreCancha = cancha.nombre?.toLowerCase() || '';
-        
+
         if (
           !nombreComplejo.includes(nombreBusqueda) &&
           !nombreCancha.includes(nombreBusqueda)
@@ -327,7 +420,6 @@ export async function buscarCanchasPorFiltros(
         }
       }
 
-      // Calcular distancia si se proporcionaron coordenadas
       let distancia: number | undefined;
       if (filtros.lat && filtros.lng && complejo.direccion_lat && complejo.direccion_lng) {
         distancia = calcularDistancia(
@@ -337,24 +429,31 @@ export async function buscarCanchasPorFiltros(
           parseFloat(complejo.direccion_lng)
         );
 
-        // Filtrar por radio si se especificó
         if (filtros.radioKm && distancia > filtros.radioKm) {
           continue;
         }
       }
 
-      // Verificar disponibilidad
-      const disponible = await obtenerDisponibilidadCancha(cancha.id, filtros.fechaHora);
+      candidatas.push({ cancha, distancia });
+    }
 
-      resultados.push({
+    const canchaIds = candidatas.map((c) => c.cancha.id);
+    const [fotosMap, disponibilidadMap] = await Promise.all([
+      obtenerFotosPorCanchas(canchaIds),
+      obtenerDisponibilidadPorCanchas(canchaIds, filtros.fechaHora),
+    ]);
+
+    const resultados: CanchaBusqueda[] = candidatas.map(({ cancha, distancia }) => {
+      const complejo = cancha.complejo as any;
+      return {
         id: cancha.id,
         nombre: cancha.nombre,
         precio_por_hora: parseFloat(cancha.precio_por_hora),
         jugadores_por_equipo: cancha.jugadores_por_equipo,
         activo: cancha.activo,
         distancia,
-        disponible,
-        fotos: cancha.fotos,
+        disponible: disponibilidadMap.get(cancha.id) ?? false,
+        fotos: fotosMap.get(cancha.id) || [],
         complejo: {
           id: complejo.id,
           nombre: complejo.nombre,
@@ -362,8 +461,8 @@ export async function buscarCanchasPorFiltros(
           direccion_lat: complejo.direccion_lat ? parseFloat(complejo.direccion_lat) : undefined,
           direccion_lng: complejo.direccion_lng ? parseFloat(complejo.direccion_lng) : undefined,
         },
-      });
-    }
+      };
+    });
 
     // Ordenar: primero disponibles, luego por distancia o precio
     resultados.sort((a, b) => {
@@ -466,36 +565,32 @@ export async function obtenerCanchasDeComplejo(
       .eq('activo', true);
 
     if (canchasError) throw canchasError;
+    if (!canchas || canchas.length === 0) {
+      return { canchas: [], fotosComplejo: fotosComplejo || [] };
+    }
 
-    // Obtener fotos de canchas y verificar disponibilidad
-    const canchasConDatos = await Promise.all(
-      (canchas || []).map(async (cancha) => {
-        const { data: fotos } = await supabase
-          .from('cancha_fotos')
-          .select('id, foto_url, orden')
-          .eq('cancha_id', cancha.id)
-          .order('orden', { ascending: true });
+    const canchaIds = canchas.map((c) => c.id);
+    const [fotosMap, disponibilidadMap] = await Promise.all([
+      obtenerFotosPorCanchas(canchaIds),
+      obtenerDisponibilidadPorCanchas(canchaIds, fechaHora),
+    ]);
 
-        const disponible = await obtenerDisponibilidadCancha(cancha.id, fechaHora);
-
-        return {
-          id: cancha.id,
-          nombre: cancha.nombre,
-          precio_por_hora: parseFloat(cancha.precio_por_hora),
-          jugadores_por_equipo: cancha.jugadores_por_equipo,
-          activo: cancha.activo,
-          disponible,
-          fotos: fotos || [],
-          complejo: {
-            id: complejo.id,
-            nombre: complejo.nombre,
-            direccion_texto: complejo.direccion_texto,
-            direccion_lat: complejo.direccion_lat ? parseFloat(complejo.direccion_lat) : undefined,
-            direccion_lng: complejo.direccion_lng ? parseFloat(complejo.direccion_lng) : undefined,
-          },
-        } as CanchaBusqueda;
-      })
-    );
+    const canchasConDatos: CanchaBusqueda[] = canchas.map((cancha) => ({
+      id: cancha.id,
+      nombre: cancha.nombre,
+      precio_por_hora: parseFloat(cancha.precio_por_hora),
+      jugadores_por_equipo: cancha.jugadores_por_equipo,
+      activo: cancha.activo,
+      disponible: disponibilidadMap.get(cancha.id) ?? false,
+      fotos: fotosMap.get(cancha.id) || [],
+      complejo: {
+        id: complejo.id,
+        nombre: complejo.nombre,
+        direccion_texto: complejo.direccion_texto,
+        direccion_lat: complejo.direccion_lat ? parseFloat(complejo.direccion_lat) : undefined,
+        direccion_lng: complejo.direccion_lng ? parseFloat(complejo.direccion_lng) : undefined,
+      },
+    }));
 
     return {
       canchas: canchasConDatos,

@@ -20,6 +20,7 @@ import { getComplejos } from '../../lib/complejos';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 
 export default function CanchasScreen() {
   const router = useRouter();
@@ -91,9 +92,7 @@ export default function CanchasScreen() {
   if (loading && canchas.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <PlayerLoadingView style={styles.loadingContainer} />
       </SafeAreaView>
     );
   }
