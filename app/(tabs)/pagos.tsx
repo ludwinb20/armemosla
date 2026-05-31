@@ -11,17 +11,28 @@ import {
 } from 'react-native';
 import RNModal from 'react-native-modal';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import {
   getFacturaMesActual,
+  getFacturaMesPasado,
   getHistorialFacturas,
   getFacturaById,
-  marcarFacturaPagada,
+  adminTieneComplejosOcultos,
+  esFacturaPagable,
+  getTotalAPagar,
+  getComisionBase,
+  textoProximoPagoMesActual,
+  getFechaOcultamientoComplejos,
+  moraCongelada,
   FacturaMensual,
   FacturaWithDetalles,
 } from '../../lib/pagos';
+import {
+  confirmarPagoPayPal,
+  obtenerPagoPayPalPendiente,
+} from '../../lib/paypal';
 import { generarYCompartirFacturaPDF } from '../../lib/pdf';
 import { obtenerCanjesMes, CanjeRecompensa } from '../../lib/canjes';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
@@ -42,12 +53,15 @@ const MESES = [
 ];
 
 export default function PagosScreen() {
+  const router = useRouter();
   const colors = useThemeColors();
   const rBackdrop = getRModalBackdropProps();
   const rCenter = getRModalCenterSheetStyle();
   const { modalMaxHeight, modalScrollAreaMaxHeight } = getRModalCardLayout();
   const [loading, setLoading] = useState(true);
   const [facturaActual, setFacturaActual] = useState<FacturaMensual | null>(null);
+  const [facturaPorPagar, setFacturaPorPagar] = useState<FacturaMensual | null>(null);
+  const [complejosOcultos, setComplejosOcultos] = useState(false);
   const [historial, setHistorial] = useState<FacturaMensual[]>([]);
   const [facturaDetalle, setFacturaDetalle] = useState<FacturaWithDetalles | null>(null);
   const [showDetalleModal, setShowDetalleModal] = useState(false);
@@ -60,7 +74,7 @@ export default function PagosScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      void loadData();
     }, [])
   );
 
@@ -87,15 +101,35 @@ export default function PagosScreen() {
     }
   };
 
-  const loadData = async () => {
+  const loadData = async (skipPayPalSync = false) => {
     try {
       setLoading(true);
-      const [factura, historialData] = await Promise.all([
+      const [factura, facturaPasada, historialData, ocultos] = await Promise.all([
         getFacturaMesActual(),
+        getFacturaMesPasado(),
         getHistorialFacturas(),
+        adminTieneComplejosOcultos(),
       ]);
-      
+
       setFacturaActual(factura);
+      setComplejosOcultos(ocultos);
+
+      const pendientePago =
+        facturaPasada && esFacturaPagable(facturaPasada) ? facturaPasada : null;
+
+      if (!skipPayPalSync && pendientePago) {
+        try {
+          const pagoPendiente = await obtenerPagoPayPalPendiente(pendientePago.id);
+          if (pagoPendiente?.paypal_order_id) {
+            await confirmarPagoPayPal({ facturaId: pendientePago.id });
+            return loadData(true);
+          }
+        } catch {
+          // Pago aún no aprobado en PayPal
+        }
+      }
+
+      setFacturaPorPagar(pendientePago);
       setHistorial(historialData);
 
       if (factura) {
@@ -145,34 +179,15 @@ export default function PagosScreen() {
     }
   };
 
-  const handleMarcarPagado = async (facturaId: string) => {
-    Alert.alert(
-      'Marcar como pagado',
-      '¿Estás seguro de que deseas marcar esta factura como pagada?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Confirmar',
-          onPress: async () => {
-            try {
-              await marcarFacturaPagada(facturaId);
-              showSuccess('Éxito', 'Factura marcada como pagada');
-              loadData();
-            } catch (error: any) {
-              console.error('Error al marcar como pagado:', error);
-              showError('Error', 'No se pudo marcar la factura como pagada');
-            }
-          },
-        },
-      ]
-    );
+  const handlePagarPayPal = (factura: FacturaMensual) => {
+    router.push({ pathname: '/pagar-factura', params: { facturaId: factura.id } });
   };
 
   const getEstadoColor = (estado: string) => {
     switch (estado) {
       case 'pagado':
         return Colors.success;
-      case 'vencido':
+      case 'retrasado':
         return Colors.error;
       case 'pendiente':
       default:
@@ -184,8 +199,8 @@ export default function PagosScreen() {
     switch (estado) {
       case 'pagado':
         return 'Pagado';
-      case 'vencido':
-        return 'Vencido';
+      case 'retrasado':
+        return 'Retrasado';
       case 'pendiente':
       default:
         return 'Pendiente';
@@ -201,7 +216,12 @@ export default function PagosScreen() {
     }).format(amount);
   };
 
-  const historialFiltrado = historial.filter((f) => f.año === filtroAño);
+  const historialFiltrado = historial.filter(
+    (f) =>
+      f.año === filtroAño &&
+      (!facturaActual || f.id !== facturaActual.id) &&
+      (!facturaPorPagar || f.id !== facturaPorPagar.id)
+  );
 
   if (loading) {
     return (
@@ -230,12 +250,136 @@ export default function PagosScreen() {
           <Text style={[styles.headerTitle, { color: colors.text }]}>Pagos / Facturación</Text>
         </View>
 
+        <TouchableOpacity
+          style={[styles.scanRecompensaButton, { backgroundColor: Colors.primary + '15', borderColor: Colors.primary }]}
+          onPress={() => router.push('/escanear-recompensa')}
+        >
+          <Ionicons name="qr-code-outline" size={22} color={Colors.primary} />
+          <View style={styles.scanRecompensaTextWrap}>
+            <Text style={[styles.scanRecompensaTitle, { color: colors.text }]}>Escanear recompensa</Text>
+            <Text style={[styles.scanRecompensaSubtitle, { color: colors.textSecondary }]}>
+              Canjeá el QR de un jugador al llegar a la cancha
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+        </TouchableOpacity>
+
+        {complejosOcultos && (
+          <View style={[styles.alertaBanner, { backgroundColor: Colors.error + '18', borderColor: Colors.error }]}>
+            <Ionicons name="eye-off-outline" size={22} color={Colors.error} />
+            <Text style={[styles.alertaBannerText, { color: colors.text }]}>
+              Tus complejos están ocultos en la app por falta de pago. Regularizá tu factura pendiente para que los jugadores vuelvan a reservar.
+            </Text>
+          </View>
+        )}
+
+        {facturaPorPagar && (
+          <View style={styles.resumenContainer}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Factura a pagar</Text>
+            <Text style={[styles.periodoText, { color: colors.textSecondary }]}>
+              {MESES[facturaPorPagar.mes - 1]} {facturaPorPagar.año}
+            </Text>
+
+            <View style={[styles.resumenCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.resumenRow}>
+                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión neta</Text>
+                <Text style={[styles.resumenValue, { color: colors.text }]}>
+                  {formatCurrency(getComisionBase(facturaPorPagar))}
+                </Text>
+              </View>
+              {(facturaPorPagar.monto_mora ?? 0) > 0 && (
+                <>
+                  <View style={styles.resumenRow}>
+                    <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>
+                      Mora ({facturaPorPagar.dias_retraso} día{facturaPorPagar.dias_retraso === 1 ? '' : 's'} · 3%/día)
+                    </Text>
+                    <Text style={[styles.resumenValue, { color: Colors.error }]}>
+                      +{formatCurrency(facturaPorPagar.monto_mora ?? 0)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.moraAviso, { color: Colors.error }]}>
+                    Pasaste el día 20 sin pagar. La mora (3% diario) se acumula solo hasta el{' '}
+                    {getFechaOcultamientoComplejos(facturaPorPagar.mes, facturaPorPagar.año).toLocaleDateString('es-HN')}
+                    .
+                  </Text>
+                  {moraCongelada(facturaPorPagar) && (
+                    <Text style={[styles.moraAviso, { color: colors.textSecondary }]}>
+                      El total ya no aumenta. Tus complejos están ocultos en búsqueda hasta que pagues la factura pendiente.
+                    </Text>
+                  )}
+                </>
+              )}
+              <View style={[styles.resumenRow, styles.resumenRowLast]}>
+                <Text style={[styles.resumenLabel, { color: colors.textSecondary, fontWeight: '700' }]}>Total a pagar</Text>
+                <Text style={[styles.resumenValue, { color: Colors.primary, fontWeight: '700', fontSize: Typography.fontSize.lg }]}>
+                  {formatCurrency(getTotalAPagar(facturaPorPagar))}
+                </Text>
+              </View>
+              <View style={styles.resumenRow}>
+                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Estado</Text>
+                <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(facturaPorPagar.estado_pago) + '20' }]}>
+                  <Text style={[styles.estadoBadgeText, { color: getEstadoColor(facturaPorPagar.estado_pago) }]}>
+                    {getEstadoTexto(facturaPorPagar.estado_pago)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.resumenRow}>
+                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Fecha límite</Text>
+                <Text style={[styles.resumenValue, { color: colors.text }]}>
+                  {new Date(facturaPorPagar.fecha_limite_pago).toLocaleDateString('es-HN')}
+                </Text>
+              </View>
+              {facturaPorPagar.estado_pago === 'retrasado' && !moraCongelada(facturaPorPagar) && (
+                <Text style={[styles.moraAviso, { color: colors.textSecondary }]}>
+                  Si no pagás antes del{' '}
+                  {getFechaOcultamientoComplejos(facturaPorPagar.mes, facturaPorPagar.año).toLocaleDateString('es-HN')}
+                  , tus complejos dejarán de mostrarse en la app y la mora dejará de aumentar.
+                </Text>
+              )}
+
+              <View style={styles.resumenActions}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.actionButtonSecondary, { borderColor: colors.border }]}
+                  onPress={() => handleVerDetalle(facturaPorPagar)}
+                >
+                  <Ionicons name="eye-outline" size={18} color={colors.text} />
+                  <Text style={[styles.actionButtonText, { color: colors.text }]}>Ver Detalle</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.actionButtonPrimary, { backgroundColor: Colors.primary }]}
+                  onPress={() => handleDescargarPDF(facturaPorPagar)}
+                  disabled={generandoPDF}
+                >
+                  {generandoPDF ? (
+                    <ActivityIndicator size="small" color={Colors.textInverse} />
+                  ) : (
+                    <>
+                      <Ionicons name="download-outline" size={18} color={Colors.textInverse} />
+                      <Text style={[styles.actionButtonText, { color: Colors.textInverse }]}>PDF</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                style={[styles.pagarButton, { backgroundColor: '#0070BA' }]}
+                onPress={() => handlePagarPayPal(facturaPorPagar)}
+              >
+                <Ionicons name="card-outline" size={22} color={Colors.textInverse} />
+                <Text style={styles.pagarButtonText}>Pagar factura</Text>
+              </TouchableOpacity>
+              <Text style={[styles.paypalNota, { color: colors.textSecondary }]}>
+                Pagá con tarjeta de forma segura. Podés guardar tu método para la próxima vez.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Resumen del Mes Actual */}
         {facturaActual && (
           <View style={styles.resumenContainer}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Resumen del Mes Actual</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Mes en curso</Text>
             <Text style={[styles.periodoText, { color: colors.textSecondary }]}>
-              {MESES[facturaActual.mes - 1]} {facturaActual.año}
+              {MESES[facturaActual.mes - 1]} {facturaActual.año} · acumulando reservas
             </Text>
 
             <View style={[styles.resumenCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -246,7 +390,7 @@ export default function PagosScreen() {
                 </Text>
               </View>
               <View style={styles.resumenRow}>
-                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión (10%)</Text>
+                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión estimada (10%)</Text>
                 <Text style={[styles.resumenValue, { color: colors.text }]}>
                   {formatCurrency(facturaActual.comision)}
                 </Text>
@@ -260,8 +404,8 @@ export default function PagosScreen() {
                     </Text>
                   </View>
                   <View style={styles.resumenRow}>
-                    <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión neta</Text>
-                    <Text style={[styles.resumenValue, { color: getEstadoColor(facturaActual.estado_pago), fontWeight: '700' }]}>
+                    <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Comisión neta estimada</Text>
+                    <Text style={[styles.resumenValue, { color: colors.text, fontWeight: '700' }]}>
                       {formatCurrency(facturaActual.comision_neta ?? facturaActual.comision)}
                     </Text>
                   </View>
@@ -269,18 +413,13 @@ export default function PagosScreen() {
               )}
               <View style={[styles.resumenRow, styles.resumenRowLast]}>
                 <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Estado</Text>
-                <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(facturaActual.estado_pago) + '20' }]}>
-                  <Text style={[styles.estadoBadgeText, { color: getEstadoColor(facturaActual.estado_pago) }]}>
-                    {getEstadoTexto(facturaActual.estado_pago)}
-                  </Text>
+                <View style={[styles.estadoBadge, { backgroundColor: Colors.primary + '20' }]}>
+                  <Text style={[styles.estadoBadgeText, { color: Colors.primary }]}>En curso</Text>
                 </View>
               </View>
-              <View style={styles.resumenRow}>
-                <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Fecha Límite</Text>
-                <Text style={[styles.resumenValue, { color: colors.text }]}>
-                  {new Date(facturaActual.fecha_limite_pago).toLocaleDateString('es-ES')}
-                </Text>
-              </View>
+              <Text style={[styles.enCursoNota, { color: colors.textSecondary }]}>
+                {textoProximoPagoMesActual()}. Hasta fin de mes seguirá actualizándose con nuevas reservas completadas.
+              </Text>
 
               <View style={styles.resumenActions}>
                 <TouchableOpacity
@@ -439,16 +578,16 @@ export default function PagosScreen() {
                     <Ionicons name="download-outline" size={16} color={colors.text} />
                     <Text style={[styles.historialActionText, { color: colors.text }]}>PDF</Text>
                   </TouchableOpacity>
-                  {factura.estado_pago !== 'pagado' && (
+                  {factura.estado_pago !== 'pagado' && esFacturaPagable(factura) && (
                     <TouchableOpacity
-                      style={[styles.historialActionButton, styles.historialActionButtonSuccess, { borderColor: Colors.success }]}
+                      style={[styles.historialActionButton, { borderColor: '#0070BA' }]}
                       onPress={(e) => {
                         e.stopPropagation();
-                        handleMarcarPagado(factura.id);
+                        handlePagarPayPal(factura);
                       }}
                     >
-                      <Ionicons name="checkmark-circle-outline" size={16} color={Colors.success} />
-                      <Text style={[styles.historialActionText, { color: Colors.success }]}>Pagado</Text>
+                      <Ionicons name="card-outline" size={16} color="#0070BA" />
+                      <Text style={[styles.historialActionText, { color: '#0070BA' }]}>Pagar</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -647,6 +786,71 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
+  },
+  scanRecompensaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  scanRecompensaTextWrap: { flex: 1 },
+  scanRecompensaTitle: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
+  },
+  scanRecompensaSubtitle: {
+    fontSize: Typography.fontSize.xs,
+    marginTop: 2,
+  },
+  alertaBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  alertaBannerText: {
+    flex: 1,
+    fontSize: Typography.fontSize.sm,
+    lineHeight: 20,
+  },
+  moraAviso: {
+    fontSize: Typography.fontSize.sm,
+    lineHeight: 20,
+    marginBottom: Spacing.sm,
+  },
+  enCursoNota: {
+    fontSize: Typography.fontSize.sm,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  pagarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.sm,
+  },
+  pagarButtonText: {
+    color: Colors.textInverse,
+    fontWeight: Typography.fontWeight.semibold,
+    fontSize: Typography.fontSize.md,
+  },
+  paypalNota: {
+    fontSize: Typography.fontSize.xs,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
   },
   resumenContainer: {
     padding: Spacing.md,

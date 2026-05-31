@@ -11,6 +11,7 @@ import '../global.css';
 
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
+import { UserTypeProvider } from '../contexts/UserTypeContext';
 import { getColors } from '../constants/theme';
 
 /**
@@ -153,6 +154,9 @@ function RootLayoutContent() {
             <Stack.Screen name="cancha-form" options={{ headerShown: false }} />
             <Stack.Screen name="solicitud-chat" options={{ headerShown: false }} />
             <Stack.Screen name="escanear-recompensa" options={{ headerShown: false }} />
+            <Stack.Screen name="pagar-factura" options={{ headerShown: false }} />
+            <Stack.Screen name="pagos/return" options={{ headerShown: false }} />
+            <Stack.Screen name="pagos/cancel" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
           </SafeAreaView>
@@ -165,7 +169,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <RootLayoutContent />
+        <UserTypeProvider>
+          <RootLayoutContent />
+        </UserTypeProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

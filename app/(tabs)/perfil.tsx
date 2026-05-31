@@ -19,6 +19,7 @@ import { supabase } from '../../lib/supabase';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useUserType } from '../../contexts/UserTypeContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 import PlayerEmptyState from '../../components/lottie/PlayerEmptyState';
@@ -52,6 +53,7 @@ export default function PerfilScreen() {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const colors = useThemeColors();
+  const { setUserType: setGlobalUserType } = useUserType();
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   const rBackdrop = getRModalBackdropProps();
@@ -181,22 +183,19 @@ export default function PerfilScreen() {
       setSaving(true);
       const updated = await changeUserType(newType);
       setProfile(updated);
+      setUserType(newType);
+      setGlobalUserType(newType);
       setShowChangeTypeModal(false);
       setConfirmChangeType(false);
-      // Redirigir según el nuevo tipo de usuario
       const redirectRoute = newType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-      
-      // Pequeño delay para asegurar que la BD se actualice antes de redirigir
-      setTimeout(() => {
-        showSuccess(
-          'Tipo de usuario cambiado', 
-          `Tu cuenta ahora es de tipo: ${newType}`,
-          () => {
-            // Redirigir según el nuevo tipo de usuario
-            router.replace(redirectRoute);
-          }
-        );
-      }, 300);
+
+      showSuccess(
+        'Tipo de usuario cambiado',
+        `Tu cuenta ahora es de tipo: ${newType}`,
+        () => {
+          router.replace(redirectRoute);
+        }
+      );
     } catch (error: any) {
       console.error('Error al cambiar tipo de usuario:', error);
       showError('Error', error.message || 'No se pudo cambiar el tipo de usuario');

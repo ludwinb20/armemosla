@@ -575,20 +575,6 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        style={[styles.scanRecompensaButton, { backgroundColor: Colors.primary + '15', borderColor: Colors.primary }]}
-        onPress={() => router.push('/escanear-recompensa')}
-      >
-        <Ionicons name="qr-code-outline" size={22} color={Colors.primary} />
-        <View style={styles.scanRecompensaTextWrap}>
-          <Text style={[styles.scanRecompensaTitle, { color: colors.text }]}>Escanear recompensa</Text>
-          <Text style={[styles.scanRecompensaSubtitle, { color: colors.textSecondary }]}>
-            Canjeá el QR de un jugador al llegar a la cancha
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
-      </TouchableOpacity>
-
       {/* Selector de cancha */}
       <View style={[styles.canchasContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity
@@ -1269,26 +1255,6 @@ const styles = StyleSheet.create({
   notificationButton: {
     position: 'relative',
     padding: Spacing.xs,
-  },
-  scanRecompensaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    gap: Spacing.sm,
-  },
-  scanRecompensaTextWrap: { flex: 1 },
-  scanRecompensaTitle: {
-    fontSize: Typography.fontSize.md,
-    fontWeight: Typography.fontWeight.semibold,
-  },
-  scanRecompensaSubtitle: {
-    fontSize: Typography.fontSize.xs,
-    marginTop: 2,
   },
   badge: {
     position: 'absolute',

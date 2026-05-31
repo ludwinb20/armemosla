@@ -15,12 +15,14 @@ import { useCustomAlert } from '../hooks/useCustomAlert';
 import CustomAlert from '../components/CustomAlert';
 import { Ionicons } from '@expo/vector-icons';
 import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
+import { useUserType } from '../contexts/UserTypeContext';
 
 type UserType = 'Jugador' | 'Administrador de Cancha';
 
 export default function SelectUserTypeScreen() {
   const [selectedType, setSelectedType] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(false);
+  const { setUserType } = useUserType();
   const { alertVisible, alertOptions, showError, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   const handleSelectType = async () => {
@@ -56,8 +58,8 @@ export default function SelectUserTypeScreen() {
       }
 
       console.log('✅ [SelectUserType] Tipo de usuario guardado:', selectedType);
-      
-      // Redirigir según el tipo de usuario seleccionado
+
+      setUserType(selectedType);
       const initialRoute = selectedType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
       router.replace(initialRoute);
     } catch (err: any) {

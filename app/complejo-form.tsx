@@ -35,6 +35,10 @@ import { GoogleMaps, AppleMaps } from 'expo-maps';
 import { Platform } from 'react-native';
 import RNModal from 'react-native-modal';
 import { getRModalBackdropProps, rModalAnimFade } from '../lib/rnModalPresets';
+import {
+  TERMINOS_PAGOS_COMPLEJO_TITULO,
+  TERMINOS_PAGOS_COMPLEJO_TEXTO,
+} from '../constants/terminosPagosComplejo';
 
 export default function ComplejoFormScreen() {
   const router = useRouter();
@@ -62,6 +66,8 @@ export default function ComplejoFormScreen() {
   const [isEditingUbicacion, setIsEditingUbicacion] = useState(false);
   const [isEditingFotos, setIsEditingFotos] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showTerminosModal, setShowTerminosModal] = useState(false);
+  const [aceptoTerminos, setAceptoTerminos] = useState(false);
 
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
@@ -156,6 +162,37 @@ export default function ComplejoFormScreen() {
       const newFotos = fotos.filter((_, i) => i !== index);
       setFotos(newFotos);
     }
+  };
+
+  const handleSavePress = () => {
+    if (!nombre.trim()) {
+      showError('Error', 'El nombre es requerido');
+      return;
+    }
+
+    const lat = parseFloat(direccionLat);
+    const lng = parseFloat(direccionLng);
+    if (isNaN(lat) || isNaN(lng)) {
+      showError('Error', 'Debes seleccionar una ubicación en el mapa');
+      return;
+    }
+
+    if (!complejoId) {
+      setAceptoTerminos(false);
+      setShowTerminosModal(true);
+      return;
+    }
+
+    void handleSave();
+  };
+
+  const handleAcceptTerminos = () => {
+    if (!aceptoTerminos) {
+      showError('Términos requeridos', 'Debés aceptar los términos y condiciones para continuar');
+      return;
+    }
+    setShowTerminosModal(false);
+    void handleSave();
   };
 
   const handleSave = async () => {
@@ -344,6 +381,14 @@ export default function ComplejoFormScreen() {
             <Ionicons name="eye-off" size={24} color={Colors.textInverse} />
             <Text style={styles.inactiveBannerText}>
               Este complejo está inactivo. Los usuarios no podrán visualizarlo ni encontrarlo.
+            </Text>
+          </View>
+        )}
+        {complejoData.oculto && (
+          <View style={[styles.inactiveBanner, { backgroundColor: Colors.error }]}>
+            <Ionicons name="alert-circle" size={24} color={Colors.textInverse} />
+            <Text style={styles.inactiveBannerText}>
+              Oculto por falta de pago de facturación. Regularizá tu pago en la pestaña Pagos para volver a aparecer en la app.
             </Text>
           </View>
         )}
@@ -865,7 +910,7 @@ export default function ComplejoFormScreen() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Nuevo Complejo</Text>
         <TouchableOpacity
-          onPress={handleSave}
+          onPress={handleSavePress}
           disabled={loading}
           style={styles.saveButton}
         >
@@ -1036,6 +1081,53 @@ export default function ComplejoFormScreen() {
         </View>
       </ScrollView>
         </KeyboardAvoidingView>
+
+      <RNModal
+        {...rBackdrop}
+        {...rModalAnimFade}
+        isVisible={showTerminosModal}
+        onBackdropPress={() => setShowTerminosModal(false)}
+        onBackButtonPress={() => setShowTerminosModal(false)}
+        style={styles.terminosModalRoot}
+      >
+        <View style={styles.terminosModalCard}>
+          <Text style={styles.terminosModalTitle}>{TERMINOS_PAGOS_COMPLEJO_TITULO}</Text>
+          <ScrollView style={styles.terminosScroll} showsVerticalScrollIndicator>
+            <Text style={styles.terminosTexto}>{TERMINOS_PAGOS_COMPLEJO_TEXTO}</Text>
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.terminosCheckRow}
+            onPress={() => setAceptoTerminos((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={aceptoTerminos ? 'checkbox' : 'square-outline'}
+              size={24}
+              color={aceptoTerminos ? Colors.primary : Colors.textSecondary}
+            />
+            <Text style={styles.terminosCheckLabel}>Acepto los términos y condiciones</Text>
+          </TouchableOpacity>
+          <View style={styles.terminosActions}>
+            <TouchableOpacity
+              style={[styles.terminosButton, styles.terminosButtonSecondary]}
+              onPress={() => setShowTerminosModal(false)}
+            >
+              <Text style={styles.terminosButtonSecondaryText}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.terminosButton, styles.terminosButtonPrimary, !aceptoTerminos && styles.terminosButtonDisabled]}
+              onPress={handleAcceptTerminos}
+              disabled={!aceptoTerminos || loading}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <Text style={styles.terminosButtonPrimaryText}>Continuar</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </RNModal>
 
       {/* Modal de vista de imagen */}
       <RNModal
@@ -1398,6 +1490,71 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.semibold,
     color: Colors.textInverse,
+  },
+  terminosModalRoot: {
+    justifyContent: 'center',
+    marginHorizontal: Spacing.md,
+  },
+  terminosModalCard: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    maxHeight: '85%',
+  },
+  terminosModalTitle: {
+    fontSize: Typography.fontSize.lg,
+    fontWeight: Typography.fontWeight.bold,
+    color: Colors.text,
+    marginBottom: Spacing.md,
+  },
+  terminosScroll: {
+    maxHeight: 320,
+    marginBottom: Spacing.md,
+  },
+  terminosTexto: {
+    fontSize: Typography.fontSize.sm,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+  },
+  terminosCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  terminosCheckLabel: {
+    flex: 1,
+    fontSize: Typography.fontSize.sm,
+    color: Colors.text,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  terminosActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  terminosButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  terminosButtonSecondary: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  terminosButtonSecondaryText: {
+    color: Colors.text,
+    fontWeight: Typography.fontWeight.medium,
+  },
+  terminosButtonPrimary: {
+    backgroundColor: Colors.primary,
+  },
+  terminosButtonDisabled: {
+    opacity: 0.5,
+  },
+  terminosButtonPrimaryText: {
+    color: Colors.textInverse,
+    fontWeight: Typography.fontWeight.semibold,
   },
   statusContainer: {
     marginTop: Spacing.xs,

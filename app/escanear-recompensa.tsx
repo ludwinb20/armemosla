@@ -327,8 +327,8 @@ export default function EscanearRecompensaScreen() {
           <TouchableOpacity style={[styles.primaryButton, { backgroundColor: Colors.primary }]} onPress={reiniciar}>
             <Text style={styles.primaryButtonText}>Escanear otro</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
-            <Text style={{ color: Colors.primary }}>Volver al inicio</Text>
+          <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/(tabs)/pagos')}>
+            <Text style={{ color: Colors.primary }}>Volver a pagos</Text>
           </TouchableOpacity>
         </View>
       )}

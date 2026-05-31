@@ -9,6 +9,7 @@ export interface Complejo {
   direccion_lat?: number;
   direccion_lng?: number;
   activo: boolean;
+  oculto?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -235,6 +236,7 @@ export async function getComplejosPublicos(): Promise<ComplejoWithFotos[]> {
       .from('complejos')
       .select('*')
       .eq('activo', true)
+      .eq('oculto', false)
       .order('nombre', { ascending: true });
 
     if (error) throw error;

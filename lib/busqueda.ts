@@ -198,7 +198,7 @@ export async function obtenerDisponibilidadCancha(
     // Verificar que la cancha esté activa
     const { data: cancha, error: canchaError } = await supabase
       .from('canchas')
-      .select('activo, complejo:complejos(activo)')
+      .select('activo, complejo:complejos(activo, oculto)')
       .eq('id', canchaId)
       .single();
 
@@ -208,7 +208,7 @@ export async function obtenerDisponibilidadCancha(
 
     // Verificar que el complejo esté activo
     const complejo = cancha.complejo as any;
-    if (!complejo || !complejo.activo) {
+    if (!complejo || !complejo.activo || complejo.oculto) {
       return false;
     }
 
@@ -284,7 +284,8 @@ export async function buscarCanchasPorUbicacion(
         )
       `)
       .eq('activo', true)
-      .eq('complejos.activo', true);
+      .eq('complejos.activo', true)
+      .eq('complejos.oculto', false);
 
     if (error) throw error;
     if (!canchas) return [];
@@ -383,7 +384,8 @@ export async function buscarCanchasPorFiltros(
         )
       `)
       .eq('activo', true)
-      .eq('complejos.activo', true);
+      .eq('complejos.activo', true)
+      .eq('complejos.oculto', false);
 
     // Filtrar por precio
     if (filtros.precioMin !== undefined) {
@@ -630,6 +632,7 @@ export async function obtenerTodasLasCanchas(): Promise<CanchaBusqueda[]> {
       `)
       .eq('activo', true)
       .eq('complejos.activo', true)
+      .eq('complejos.oculto', false)
       .order('precio_por_hora', { ascending: true });
 
     if (error) throw error;

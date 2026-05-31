@@ -327,6 +327,7 @@ export async function getCanchasPublicas(): Promise<CanchaWithRelations[]> {
       `)
       .eq('activo', true)
       .eq('complejos.activo', true)
+      .eq('complejos.oculto', false)
       .order('precio_por_hora', { ascending: true });
 
     if (error) throw error;
