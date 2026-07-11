@@ -6,13 +6,14 @@ import React, {
   useState,
   ReactNode,
 } from 'react';
-import { getUserType } from '../lib/user';
+import { getUserType, getIsPlatformAdmin } from '../lib/user';
 import { supabase } from '../lib/supabase';
 
 export type AppUserType = 'Jugador' | 'Administrador de Cancha' | null;
 
 interface UserTypeContextType {
   userType: AppUserType;
+  isPlatformAdmin: boolean;
   loadingUserType: boolean;
   refreshUserType: (options?: { showLoading?: boolean }) => Promise<AppUserType>;
   setUserType: (type: AppUserType) => void;
@@ -26,6 +27,7 @@ interface UserTypeProviderProps {
 
 export function UserTypeProvider({ children }: UserTypeProviderProps) {
   const [userType, setUserTypeState] = useState<AppUserType>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [loadingUserType, setLoadingUserType] = useState(true);
 
   const refreshUserType = useCallback(async (options?: { showLoading?: boolean }) => {
@@ -34,8 +36,12 @@ export function UserTypeProvider({ children }: UserTypeProviderProps) {
       if (showLoading) {
         setLoadingUserType(true);
       }
-      const type = await getUserType();
+      const [type, platformAdmin] = await Promise.all([
+        getUserType(),
+        getIsPlatformAdmin(),
+      ]);
       setUserTypeState(type);
+      setIsPlatformAdmin(platformAdmin);
       return type;
     } catch (error) {
       console.error('Error al obtener tipo de usuario:', error);
@@ -88,6 +94,7 @@ export function UserTypeProvider({ children }: UserTypeProviderProps) {
 
       if (!session?.user) {
         setUserTypeState(null);
+        setIsPlatformAdmin(false);
         setLoadingUserType(false);
         return;
       }
@@ -112,6 +119,7 @@ export function UserTypeProvider({ children }: UserTypeProviderProps) {
 
       if (!session?.user) {
         setUserTypeState(null);
+        setIsPlatformAdmin(false);
         setLoadingUserType(false);
         return;
       }
@@ -132,7 +140,7 @@ export function UserTypeProvider({ children }: UserTypeProviderProps) {
   }, [refreshUserType]);
 
   return (
-    <UserTypeContext.Provider value={{ userType, loadingUserType, refreshUserType, setUserType }}>
+    <UserTypeContext.Provider value={{ userType, isPlatformAdmin, loadingUserType, refreshUserType, setUserType }}>
       {children}
     </UserTypeContext.Provider>
   );

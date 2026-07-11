@@ -26,14 +26,25 @@ import {
   textoProximoPagoMesActual,
   getFechaOcultamientoComplejos,
   moraCongelada,
+  labelEstadoPago,
+  colorEstadoPago,
   FacturaMensual,
   FacturaWithDetalles,
 } from '../../lib/pagos';
+import { generarYCompartirFacturaPDF, generarYCompartirFacturaFiscalPDF } from '../../lib/pdf';
 import {
-  confirmarPagoPayPal,
-  obtenerPagoPayPalPendiente,
-} from '../../lib/paypal';
-import { generarYCompartirFacturaPDF } from '../../lib/pdf';
+  getHistorialTransferencias,
+  getMontoPendiente,
+  getReembolsosPorFactura,
+  Transferencia,
+  Reembolso,
+} from '../../lib/transferencias';
+import {
+  getSolicitudesPorFactura,
+  cancelarSolicitudReembolso,
+  SolicitudReembolso,
+} from '../../lib/solicitudesReembolso';
+import { getFacturaFiscal } from '../../lib/datosFiscales';
 import { obtenerCanjesMes, CanjeRecompensa } from '../../lib/canjes';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
@@ -70,6 +81,10 @@ export default function PagosScreen() {
   const [generandoPDF, setGenerandoPDF] = useState(false);
   const [nombreAdmin, setNombreAdmin] = useState<string>('');
   const [canjesMes, setCanjesMes] = useState<CanjeRecompensa[]>([]);
+  const [transferenciasFactura, setTransferenciasFactura] = useState<(Transferencia & { monto_aplicado: number })[]>([]);
+  const [reembolsosFactura, setReembolsosFactura] = useState<Reembolso[]>([]);
+  const [solicitudesFactura, setSolicitudesFactura] = useState<SolicitudReembolso[]>([]);
+  const [montoPendiente, setMontoPendiente] = useState(0);
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
 
   useFocusEffect(
@@ -101,7 +116,7 @@ export default function PagosScreen() {
     }
   };
 
-  const loadData = async (skipPayPalSync = false) => {
+  const loadData = async () => {
     try {
       setLoading(true);
       const [factura, facturaPasada, historialData, ocultos] = await Promise.all([
@@ -117,20 +132,26 @@ export default function PagosScreen() {
       const pendientePago =
         facturaPasada && esFacturaPagable(facturaPasada) ? facturaPasada : null;
 
-      if (!skipPayPalSync && pendientePago) {
-        try {
-          const pagoPendiente = await obtenerPagoPayPalPendiente(pendientePago.id);
-          if (pagoPendiente?.paypal_order_id) {
-            await confirmarPagoPayPal({ facturaId: pendientePago.id });
-            return loadData(true);
-          }
-        } catch {
-          // Pago aún no aprobado en PayPal
-        }
-      }
-
       setFacturaPorPagar(pendientePago);
       setHistorial(historialData);
+
+      if (pendientePago) {
+        const [historialTransf, reembolsos, solicitudes, pendiente] = await Promise.all([
+          getHistorialTransferencias(pendientePago.id),
+          getReembolsosPorFactura(pendientePago.id),
+          getSolicitudesPorFactura(pendientePago.id),
+          getMontoPendiente(pendientePago.id),
+        ]);
+        setTransferenciasFactura(historialTransf);
+        setReembolsosFactura(reembolsos);
+        setSolicitudesFactura(solicitudes);
+        setMontoPendiente(pendiente);
+      } else {
+        setTransferenciasFactura([]);
+        setReembolsosFactura([]);
+        setSolicitudesFactura([]);
+        setMontoPendiente(0);
+      }
 
       if (factura) {
         const canjes = await obtenerCanjesMes(factura.mes, factura.año);
@@ -179,33 +200,62 @@ export default function PagosScreen() {
     }
   };
 
-  const handlePagarPayPal = (factura: FacturaMensual) => {
-    router.push({ pathname: '/pagar-factura', params: { facturaId: factura.id } });
+  const handleReportarTransferencia = (factura: FacturaMensual) => {
+    router.push({ pathname: '/reportar-pago', params: { facturaId: factura.id } });
   };
 
-  const getEstadoColor = (estado: string) => {
-    switch (estado) {
-      case 'pagado':
-        return Colors.success;
-      case 'retrasado':
-        return Colors.error;
-      case 'pendiente':
-      default:
-        return Colors.warning;
+  const handleSolicitarReembolso = (transferenciaId: string) => {
+    router.push({ pathname: '/solicitar-reembolso', params: { transferenciaId } });
+  };
+
+  const handleCancelarSolicitud = (solicitudId: string) => {
+    Alert.alert(
+      'Cancelar solicitud',
+      '¿Querés cancelar esta solicitud de reembolso?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Sí, cancelar',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                await cancelarSolicitudReembolso(solicitudId);
+                await loadData();
+                showSuccess('Listo', 'Solicitud cancelada');
+              } catch (error: unknown) {
+                showError('Error', error instanceof Error ? error.message : 'No se pudo cancelar');
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
+  const solicitudPorTransferencia = (transferenciaId: string) =>
+    solicitudesFactura.find((s) => s.transferencia_id === transferenciaId);
+
+  const handleDescargarFacturaFiscal = async (factura: FacturaMensual) => {
+    try {
+      setGenerandoPDF(true);
+      const fiscal = await getFacturaFiscal(factura.id);
+      if (!fiscal) {
+        showError('Sin factura fiscal', 'No hay factura fiscal RTN emitida para este periodo');
+        return;
+      }
+      await generarYCompartirFacturaFiscalPDF(fiscal);
+      showSuccess('Éxito', 'Factura fiscal generada');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'No se pudo generar la factura fiscal';
+      showError('Error', msg);
+    } finally {
+      setGenerandoPDF(false);
     }
   };
 
-  const getEstadoTexto = (estado: string) => {
-    switch (estado) {
-      case 'pagado':
-        return 'Pagado';
-      case 'retrasado':
-        return 'Retrasado';
-      case 'pendiente':
-      default:
-        return 'Pendiente';
-    }
-  };
+  const getEstadoColor = (estado: string) => colorEstadoPago(estado as FacturaMensual['estado_pago']);
+  const getEstadoTexto = (estado: string) => labelEstadoPago(estado as FacturaMensual['estado_pago']);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-HN', {
@@ -329,6 +379,19 @@ export default function PagosScreen() {
                   {new Date(facturaPorPagar.fecha_limite_pago).toLocaleDateString('es-HN')}
                 </Text>
               </View>
+              {facturaPorPagar.estado_pago === 'en_revision' && montoPendiente > 0 && (
+                <View style={styles.resumenRow}>
+                  <Text style={[styles.resumenLabel, { color: colors.textSecondary }]}>Pendiente de confirmar</Text>
+                  <Text style={[styles.resumenValue, { color: Colors.warning }]}>
+                    {formatCurrency(montoPendiente)}
+                  </Text>
+                </View>
+              )}
+              {facturaPorPagar.estado_pago === 'en_revision' && (
+                <Text style={[styles.moraAviso, { color: colors.textSecondary }]}>
+                  Tu pago está en revisión. Mientras tanto no se aplican mora ni se ocultan tus complejos.
+                </Text>
+              )}
               {facturaPorPagar.estado_pago === 'retrasado' && !moraCongelada(facturaPorPagar) && (
                 <Text style={[styles.moraAviso, { color: colors.textSecondary }]}>
                   Si no pagás antes del{' '}
@@ -361,15 +424,85 @@ export default function PagosScreen() {
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={[styles.pagarButton, { backgroundColor: '#0070BA' }]}
-                onPress={() => handlePagarPayPal(facturaPorPagar)}
+                style={[styles.pagarButton, { backgroundColor: Colors.primary }]}
+                onPress={() => handleReportarTransferencia(facturaPorPagar)}
               >
-                <Ionicons name="card-outline" size={22} color={Colors.textInverse} />
-                <Text style={styles.pagarButtonText}>Pagar factura</Text>
+                <Ionicons name="swap-horizontal-outline" size={22} color={Colors.textInverse} />
+                <Text style={styles.pagarButtonText}>Reportar transferencia</Text>
               </TouchableOpacity>
-              <Text style={[styles.paypalNota, { color: colors.textSecondary }]}>
-                Pagá con tarjeta de forma segura. Podés guardar tu método para la próxima vez.
+              <Text style={[styles.pagoNota, { color: colors.textSecondary }]}>
+                Transferí a una cuenta de Armemosla y reportá el pago con el número de referencia bancaria.
               </Text>
+
+              {transferenciasFactura.length > 0 && (
+                <View style={{ marginTop: Spacing.md }}>
+                  <Text style={[styles.sectionTitle, { color: colors.text, fontSize: Typography.fontSize.md }]}>
+                    Historial de transferencias
+                  </Text>
+                  {transferenciasFactura.map((t) => {
+                    const solicitud = solicitudPorTransferencia(t.id);
+                    return (
+                    <View
+                      key={t.id}
+                      style={[styles.historialCard, { backgroundColor: colors.background, borderColor: colors.border, marginBottom: Spacing.xs }]}
+                    >
+                      <View style={styles.historialRow}>
+                        <Text style={[styles.historialLabel, { color: colors.textSecondary }]}>
+                          {new Date(t.created_at).toLocaleDateString('es-HN')} · Ref {t.numero_transaccion}
+                        </Text>
+                        <Text style={[styles.historialValue, { color: colors.text }]}>
+                          {formatCurrency(Number(t.monto_aplicado))}
+                        </Text>
+                      </View>
+                      <Text style={[styles.historialFecha, { color: getEstadoColor(t.estado === 'confirmada' ? 'pagado' : t.estado === 'rechazada' ? 'retrasado' : 'en_revision') }]}>
+                        {t.estado === 'pendiente_revision' ? 'En revisión' : t.estado === 'confirmada' ? 'Confirmada' : t.estado === 'rechazada' ? `Rechazada${t.notas_admin ? `: ${t.notas_admin}` : ''}` : t.estado === 'reembolsada' ? 'Reembolsada' : t.estado}
+                      </Text>
+                      {solicitud?.estado === 'pendiente' && (
+                        <View style={{ marginTop: Spacing.xs }}>
+                          <Text style={[styles.historialFecha, { color: Colors.warning }]}>
+                            Solicitud de reembolso en revisión ({formatCurrency(Number(solicitud.monto))})
+                          </Text>
+                          <TouchableOpacity onPress={() => handleCancelarSolicitud(solicitud.id)}>
+                            <Text style={{ color: Colors.error, fontSize: Typography.fontSize.sm, marginTop: 4 }}>
+                              Cancelar solicitud
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {solicitud?.estado === 'rechazada' && solicitud.respuesta_plataforma && (
+                        <Text style={[styles.historialFecha, { color: Colors.error, marginTop: Spacing.xs }]}>
+                          Reembolso rechazado: {solicitud.respuesta_plataforma}
+                        </Text>
+                      )}
+                      {t.estado === 'confirmada' && !solicitud && (
+                        <TouchableOpacity
+                          style={[styles.solicitarReembolsoBtn, { borderColor: Colors.warning }]}
+                          onPress={() => handleSolicitarReembolso(t.id)}
+                        >
+                          <Ionicons name="return-down-back-outline" size={16} color={Colors.warning} />
+                          <Text style={{ color: Colors.warning, fontSize: Typography.fontSize.sm }}>
+                            Solicitar reembolso
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {reembolsosFactura.length > 0 && (
+                <View style={{ marginTop: Spacing.sm }}>
+                  <Text style={[styles.sectionTitle, { color: colors.text, fontSize: Typography.fontSize.md }]}>
+                    Reembolsos
+                  </Text>
+                  {reembolsosFactura.map((r) => (
+                    <Text key={r.id} style={[styles.moraAviso, { color: Colors.error }]}>
+                      Reembolso {formatCurrency(Number(r.monto))}: {r.visible_mensaje}
+                    </Text>
+                  ))}
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -580,14 +713,26 @@ export default function PagosScreen() {
                   </TouchableOpacity>
                   {factura.estado_pago !== 'pagado' && esFacturaPagable(factura) && (
                     <TouchableOpacity
-                      style={[styles.historialActionButton, { borderColor: '#0070BA' }]}
+                      style={[styles.historialActionButton, { borderColor: Colors.primary }]}
                       onPress={(e) => {
                         e.stopPropagation();
-                        handlePagarPayPal(factura);
+                        handleReportarTransferencia(factura);
                       }}
                     >
-                      <Ionicons name="card-outline" size={16} color="#0070BA" />
-                      <Text style={[styles.historialActionText, { color: '#0070BA' }]}>Pagar</Text>
+                      <Ionicons name="swap-horizontal-outline" size={16} color={Colors.primary} />
+                      <Text style={[styles.historialActionText, { color: Colors.primary }]}>Reportar</Text>
+                    </TouchableOpacity>
+                  )}
+                  {factura.estado_pago === 'pagado' && (
+                    <TouchableOpacity
+                      style={[styles.historialActionButton, { borderColor: Colors.success }]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void handleDescargarFacturaFiscal(factura);
+                      }}
+                    >
+                      <Ionicons name="document-text-outline" size={16} color={Colors.success} />
+                      <Text style={[styles.historialActionText, { color: Colors.success }]}>RTN</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -846,7 +991,7 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.semibold,
     fontSize: Typography.fontSize.md,
   },
-  paypalNota: {
+  pagoNota: {
     fontSize: Typography.fontSize.xs,
     lineHeight: 18,
     textAlign: 'center',
@@ -993,6 +1138,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.xs,
+  },
+  solicitarReembolsoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs / 2,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    alignSelf: 'flex-start',
   },
   historialLabel: {
     fontSize: Typography.fontSize.sm,

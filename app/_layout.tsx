@@ -154,6 +154,8 @@ function RootLayoutContent() {
             <Stack.Screen name="cancha-form" options={{ headerShown: false }} />
             <Stack.Screen name="solicitud-chat" options={{ headerShown: false }} />
             <Stack.Screen name="escanear-recompensa" options={{ headerShown: false }} />
+            <Stack.Screen name="reportar-pago" options={{ headerShown: false }} />
+            <Stack.Screen name="solicitar-reembolso" options={{ headerShown: false }} />
             <Stack.Screen name="pagar-factura" options={{ headerShown: false }} />
             <Stack.Screen name="pagos/return" options={{ headerShown: false }} />
             <Stack.Screen name="pagos/cancel" options={{ headerShown: false }} />

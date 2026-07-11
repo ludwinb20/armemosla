@@ -7,6 +7,7 @@ export interface UserProfile {
   phone: string | null;
   avatar_url: string | null;
   user_type: 'Jugador' | 'Administrador de Cancha' | null;
+  es_admin_plataforma?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -77,6 +78,48 @@ export async function getUserType(): Promise<'Jugador' | 'Administrador de Canch
     console.error('❌ [getUserType] Error general:', error);
     return null;
   }
+}
+
+/**
+ * Indica si el usuario es operador Armemosla (admin plataforma).
+ */
+export async function getIsPlatformAdmin(): Promise<boolean> {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return false;
+
+    const { data, error } = await supabase.rpc('es_admin_plataforma');
+    if (error) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('es_admin_plataforma')
+        .eq('id', user.id)
+        .single();
+      return Boolean(profile?.es_admin_plataforma);
+    }
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ruta inicial tras login o al abrir la app.
+ */
+export async function getInitialAppRoute(): Promise<string> {
+  if (await getIsPlatformAdmin()) {
+    return '/(tabs)/revision-pagos';
+  }
+
+  const userType = await getUserType();
+  if (userType === 'Jugador') {
+    return '/(tabs)/armemosla';
+  }
+  if (userType === 'Administrador de Cancha') {
+    return '/(tabs)/home';
+  }
+
+  return '/select-user-type';
 }
 
 /**

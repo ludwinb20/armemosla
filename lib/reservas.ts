@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { dispatchNotification } from './push/dispatchNotification';
 
 export interface Reserva {
   id: string;
@@ -324,6 +325,11 @@ export async function createReserva(
       .single();
 
     if (error) throw error;
+
+    if (data?.made_by_player && data.id) {
+      dispatchNotification('reserva_nueva', { reserva_id: data.id });
+    }
+
     return data;
   } catch (error: any) {
     console.error('❌ [createReserva] Error:', error);
@@ -374,7 +380,34 @@ export async function updateReserva(
  */
 export async function cancelarReserva(id: string): Promise<Reserva> {
   try {
-    return await updateReserva(id, { estado: 'cancelada' });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuario no autenticado');
+
+    const { data: existing } = await supabase
+      .from('reservas')
+      .select('id, user_id, made_by_player, cancha_id')
+      .eq('id', id)
+      .maybeSingle();
+
+    const cancelled = await updateReserva(id, { estado: 'cancelada' });
+
+    if (existing?.made_by_player) {
+      if (existing.user_id === user.id) {
+        dispatchNotification('reserva_cancelada', { reserva_id: id });
+      } else if (existing.user_id) {
+        const { data: cancha } = await supabase
+          .from('canchas')
+          .select('complejo:complejos(admin_id)')
+          .eq('id', existing.cancha_id)
+          .maybeSingle();
+        const adminId = (cancha?.complejo as { admin_id?: string } | null)?.admin_id;
+        if (adminId === user.id) {
+          dispatchNotification('reserva_cancelada_admin', { reserva_id: id });
+        }
+      }
+    }
+
+    return cancelled;
   } catch (error: any) {
     console.error('❌ [cancelarReserva] Error:', error);
     throw error;

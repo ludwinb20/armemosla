@@ -1,4 +1,5 @@
 import { FacturaWithDetalles, FacturaMensual } from './pagos';
+import type { FacturaFiscal } from './datosFiscales';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -310,5 +311,155 @@ export async function generarYCompartirFacturaPDF(
   } catch (error: any) {
     console.error('❌ [generarYCompartirFacturaPDF] Error:', error);
     throw error;
+  }
+}
+
+interface FiscalSnapshot {
+  emisor?: {
+    razon_social?: string;
+    rtn?: string;
+    cai?: string;
+    fecha_emision?: string;
+    fecha_limite_emision?: string;
+  };
+  cliente?: {
+    razon_social?: string;
+    rtn?: string;
+    direccion?: string;
+  };
+  detalle?: Array<{
+    descripcion?: string;
+    cantidad?: number;
+    precio_unitario?: number;
+    subtotal?: number;
+    isv?: number;
+    total?: number;
+  }>;
+  totales?: {
+    subtotal_gravado?: number;
+    isv_15?: number;
+    total?: number;
+  };
+  periodo?: { mes?: number; año?: number };
+  fecha_emision_documento?: string;
+}
+
+function formatHNL(amount: number): string {
+  return `L ${amount.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export async function generarFacturaFiscalPDF(facturaFiscal: FacturaFiscal): Promise<string> {
+  const snap = facturaFiscal.snapshot as FiscalSnapshot;
+  const emisor = snap.emisor ?? {};
+  const cliente = snap.cliente ?? {};
+  const totales = snap.totales ?? {};
+  const lineas = snap.detalle ?? [];
+  const periodo = snap.periodo;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #222; font-size: 12px; }
+        h1 { color: #00C56E; text-align: center; margin-bottom: 4px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 24px; }
+        .box { border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; border-radius: 6px; }
+        .box h2 { margin: 0 0 8px; font-size: 14px; color: #00C56E; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #00C56E; color: #fff; }
+        .totals { text-align: right; margin-top: 16px; }
+        .totals div { margin-bottom: 6px; }
+        .legal { margin-top: 24px; font-size: 10px; color: #666; text-align: center; border-top: 1px solid #ddd; padding-top: 12px; }
+        .numero { font-size: 16px; font-weight: bold; text-align: center; margin: 12px 0; }
+      </style>
+    </head>
+    <body>
+      <h1>Armemosla</h1>
+      <p class="subtitle">Factura fiscal — documento no modificable</p>
+      <p class="numero">No. ${facturaFiscal.numero_fiscal}</p>
+
+      <div class="box">
+        <h2>Emisor</h2>
+        <div>${emisor.razon_social ?? ''}</div>
+        <div>RTN: ${emisor.rtn ?? ''}</div>
+        <div>CAI: ${emisor.cai ?? ''}</div>
+        <div>Rango autorizado: ${emisor.fecha_emision ?? ''} al ${emisor.fecha_limite_emision ?? ''}</div>
+      </div>
+
+      <div class="box">
+        <h2>Cliente</h2>
+        <div>${cliente.razon_social ?? ''}</div>
+        <div>RTN: ${cliente.rtn ?? ''}</div>
+        ${cliente.direccion ? `<div>${cliente.direccion}</div>` : ''}
+      </div>
+
+      ${periodo ? `<p><strong>Periodo servicio:</strong> ${periodo.mes}/${periodo.año}</p>` : ''}
+      <p><strong>Fecha emisión documento:</strong> ${snap.fecha_emision_documento ?? ''}</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Descripción</th>
+            <th>Cant.</th>
+            <th>Base gravada</th>
+            <th>ISV 15%</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineas.map((l) => `
+            <tr>
+              <td>${l.descripcion ?? ''}</td>
+              <td>${l.cantidad ?? 1}</td>
+              <td>${formatHNL(Number(l.subtotal ?? l.precio_unitario ?? 0))}</td>
+              <td>${formatHNL(Number(l.isv ?? 0))}</td>
+              <td>${formatHNL(Number(l.total ?? 0))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div><strong>Subtotal gravado:</strong> ${formatHNL(Number(totales.subtotal_gravado ?? 0))}</div>
+        <div><strong>ISV 15%:</strong> ${formatHNL(Number(totales.isv_15 ?? 0))}</div>
+        <div><strong>Total:</strong> ${formatHNL(Number(totales.total ?? 0))}</div>
+      </div>
+
+      <p class="legal">
+        Factura fiscal emitida conforme normativa SAR de Honduras. Este documento es un snapshot inmutable;
+        cualquier modificación posterior no tiene validez fiscal.
+      </p>
+    </body>
+    </html>
+  `;
+
+  let Print: typeof import('expo-print');
+  try {
+    Print = await import('expo-print');
+  } catch {
+    throw new Error('PDF no disponible. Ejecutá prebuild y compilá la app nativa.');
+  }
+
+  const { uri } = await Print.printToFileAsync({ html });
+  return uri;
+}
+
+export async function generarYCompartirFacturaFiscalPDF(facturaFiscal: FacturaFiscal): Promise<void> {
+  const uri = await generarFacturaFiscalPDF(facturaFiscal);
+
+  let Sharing: typeof import('expo-sharing');
+  try {
+    Sharing = await import('expo-sharing');
+  } catch {
+    throw new Error('Compartir no disponible. PDF en: ' + uri);
+  }
+
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri);
+  } else {
+    throw new Error('Compartir no disponible. PDF en: ' + uri);
   }
 }

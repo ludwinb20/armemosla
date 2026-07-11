@@ -64,17 +64,27 @@ export async function savePushToken(token: string): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuario no autenticado');
 
-    // Aquí podrías guardar el token en una tabla de tokens de notificaciones
-    // Por ahora solo lo retornamos para uso local
-    console.log('✅ Token guardado para usuario:', user.id);
-  } catch (error: any) {
+    const platform = Platform.OS;
+
+    const { error } = await supabase.from('push_tokens').upsert(
+      {
+        user_id: user.id,
+        expo_push_token: token,
+        platform,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,expo_push_token' }
+    );
+
+    if (error) throw error;
+  } catch (error: unknown) {
     console.error('❌ [savePushToken] Error:', error);
     throw error;
   }
 }
 
 /**
- * Envía una notificación local
+ * Envía una notificación local (solo foreground; preferir dispatchNotification para push remoto).
  */
 export async function sendLocalNotification(
   title: string,
@@ -95,72 +105,4 @@ export async function sendLocalNotification(
     console.error('❌ [sendLocalNotification] Error:', error);
     throw error;
   }
-}
-
-/**
- * Envía notificación cuando se recibe una solicitud de partido
- */
-export async function notifyNuevaSolicitudPartido(
-  equipoNombre: string,
-  partidoId: string
-): Promise<void> {
-  await sendLocalNotification(
-    'Nueva Solicitud de Partido',
-    `El equipo "${equipoNombre}" quiere jugar contigo`,
-    {
-      type: 'solicitud_partido',
-      partidoId,
-    }
-  );
-}
-
-/**
- * Envía notificación cuando se acepta una solicitud de partido
- */
-export async function notifySolicitudAceptada(
-  equipoNombre: string,
-  partidoId: string
-): Promise<void> {
-  await sendLocalNotification(
-    'Solicitud Aceptada',
-    `Tu solicitud para jugar contra "${equipoNombre}" fue aceptada`,
-    {
-      type: 'solicitud_aceptada',
-      partidoId,
-    }
-  );
-}
-
-/**
- * Envía notificación cuando se rechaza una solicitud de partido
- */
-export async function notifySolicitudRechazada(
-  equipoNombre: string,
-  partidoId: string
-): Promise<void> {
-  await sendLocalNotification(
-    'Solicitud Rechazada',
-    `Tu solicitud para jugar contra "${equipoNombre}" fue rechazada`,
-    {
-      type: 'solicitud_rechazada',
-      partidoId,
-    }
-  );
-}
-
-/**
- * Envía notificación cuando se encuentra un match automático
- */
-export async function notifyMatchEncontrado(
-  equipoNombre: string,
-  partidoId: string
-): Promise<void> {
-  await sendLocalNotification(
-    '¡Match Encontrado!',
-    `Se encontró un partido compatible con "${equipoNombre}"`,
-    {
-      type: 'match_encontrado',
-      partidoId,
-    }
-  );
 }

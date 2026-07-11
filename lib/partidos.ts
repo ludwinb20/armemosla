@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { dispatchNotification } from './push/dispatchNotification';
 
 const MENSAJE_SOLICITUD_DEFAULT = '¡Hola! Me interesa jugar este partido.';
 
@@ -167,6 +168,12 @@ export async function publicarReservaBuscarRival(
   try {
     const matches = await buscarMatchAutomatico(partido.id);
     matchesFound = matches.length;
+    if (matchesFound > 0) {
+      dispatchNotification('match_encontrado', {
+        partido_id: partido.id,
+        matches_count: String(matchesFound),
+      });
+    }
   } catch (error) {
     console.error('❌ [publicarReservaBuscarRival] match automático:', error);
   }
@@ -390,6 +397,8 @@ export async function enviarSolicitudPartido(
 
     insertarMensajeInicialSolicitud(data.id, cuerpoInicial, user.id);
 
+    dispatchNotification('solicitud_partido_nueva', { solicitud_id: data.id });
+
     return data as SolicitudPartido;
   } catch (error: any) {
     console.error('❌ [enviarSolicitudPartido] Error:', error);
@@ -419,6 +428,15 @@ export async function aceptarSolicitud(solicitudId: string): Promise<void> {
       throw new Error('No tienes permiso para aceptar esta solicitud');
     }
 
+    const partidoId = (solicitud.partido as any).id as string;
+
+    const { data: otrasPendientes } = await supabase
+      .from('solicitudes_partidos')
+      .select('id')
+      .eq('partido_id', partidoId)
+      .neq('id', solicitudId)
+      .eq('estado', 'pendiente');
+
     // Actualizar solicitud a aceptada
     const { error: updateError } = await supabase
       .from('solicitudes_partidos')
@@ -439,7 +457,12 @@ export async function aceptarSolicitud(solicitudId: string): Promise<void> {
     await supabase
       .from('partidos_abiertos')
       .update({ estado: 'confirmado' })
-      .eq('id', (solicitud.partido as any).id);
+      .eq('id', partidoId);
+
+    dispatchNotification('solicitud_aceptada', { solicitud_id: solicitudId });
+    for (const otra of otrasPendientes ?? []) {
+      dispatchNotification('solicitud_rechazada', { solicitud_id: otra.id });
+    }
 
   } catch (error: any) {
     console.error('❌ [aceptarSolicitud] Error:', error);
@@ -475,6 +498,8 @@ export async function rechazarSolicitud(solicitudId: string): Promise<void> {
       .eq('id', solicitudId);
 
     if (error) throw error;
+
+    dispatchNotification('solicitud_rechazada', { solicitud_id: solicitudId });
 
   } catch (error: any) {
     console.error('❌ [rechazarSolicitud] Error:', error);
@@ -898,7 +923,10 @@ export async function crearRetoDirectoJugador(
     if (error) throw error;
     if (!data) throw new Error('No se pudo crear la oferta de reto');
 
-    return data as RetoDirectoJugador;
+    const reto = data as RetoDirectoJugador;
+    dispatchNotification('reto_directo_nuevo', { reto_id: reto.id });
+
+    return reto;
   } catch (error: any) {
     console.error('❌ [crearRetoDirectoJugador] Error:', error);
     if (error?.code === 'PGRST202') {
@@ -908,4 +936,42 @@ export async function crearRetoDirectoJugador(
     }
     throw error;
   }
+}
+
+export async function aceptarRetoDirectoJugador(retoId: string): Promise<RetoDirectoJugador> {
+  const { data, error } = await supabase.rpc('aceptar_reto_directo_jugador', {
+    p_reto_id: retoId,
+  });
+  if (error) {
+    if (error.code === 'PGRST202') {
+      throw new Error('Falta ejecutar db_settings/55_retos_directos_respuesta.sql en Supabase.');
+    }
+    throw error;
+  }
+  if (!data) throw new Error('No se pudo aceptar el reto');
+
+  dispatchNotification('reto_directo_respuesta', { reto_id: retoId, estado: 'aceptado' });
+  return data as RetoDirectoJugador;
+}
+
+export async function rechazarRetoDirectoJugador(retoId: string): Promise<RetoDirectoJugador> {
+  const { data, error } = await supabase.rpc('rechazar_reto_directo_jugador', {
+    p_reto_id: retoId,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('No se pudo rechazar el reto');
+
+  dispatchNotification('reto_directo_respuesta', { reto_id: retoId, estado: 'rechazado' });
+  return data as RetoDirectoJugador;
+}
+
+export async function cancelarRetoDirectoJugador(retoId: string): Promise<RetoDirectoJugador> {
+  const { data, error } = await supabase.rpc('cancelar_reto_directo_jugador', {
+    p_reto_id: retoId,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('No se pudo cancelar el reto');
+
+  dispatchNotification('reto_directo_respuesta', { reto_id: retoId, estado: 'cancelado' });
+  return data as RetoDirectoJugador;
 }

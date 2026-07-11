@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-export type EstadoPago = 'pendiente' | 'pagado' | 'retrasado';
+export type EstadoPago = 'pendiente' | 'pagado' | 'retrasado' | 'en_revision';
 
 export interface FacturaMensual {
   id: string;
@@ -93,6 +93,36 @@ export function esFacturaPagable(factura: FacturaMensual): boolean {
   }
   const disponible = getFechaDisponiblePago(factura.mes, factura.año);
   return new Date() >= disponible;
+}
+
+export function puedeReportarTransferencia(factura: FacturaMensual): boolean {
+  return esFacturaPagable(factura);
+}
+
+export function labelEstadoPago(estado: EstadoPago): string {
+  switch (estado) {
+    case 'pagado':
+      return 'Pagado';
+    case 'retrasado':
+      return 'Retrasado';
+    case 'en_revision':
+      return 'En revisión';
+    default:
+      return 'Pendiente';
+  }
+}
+
+export function colorEstadoPago(estado: EstadoPago): string {
+  switch (estado) {
+    case 'pagado':
+      return '#22c55e';
+    case 'retrasado':
+      return '#ef4444';
+    case 'en_revision':
+      return '#f59e0b';
+    default:
+      return '#64748b';
+  }
 }
 
 export function textoDisponibilidadPago(factura: FacturaMensual): string {

@@ -3,6 +3,7 @@ import {
   capturePayPalOrder,
   extractCaptureId,
 } from './paypal.ts';
+import { dispatchNotification } from './notificationDispatch.ts';
 
 export function getServiceSupabase(): SupabaseClient {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -70,6 +71,9 @@ export async function finalizePayPalCapture(
       paypal_capture_id: captureId,
     })
     .eq('id', pago.factura_id);
+
+  await dispatchNotification(supabase, 'pago_tarjeta_ok', { factura_id: pago.factura_id });
+  await dispatchNotification(supabase, 'factura_pagada', { factura_id: pago.factura_id });
 
   return { ok: true, factura_id: pago.factura_id };
 }

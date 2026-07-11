@@ -13,7 +13,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { router } from 'expo-router';
 import { Colors, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { hasUserType, getUserType } from '../lib/user';
+import { hasUserType, getInitialAppRoute, getIsPlatformAdmin } from '../lib/user';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCustomAlert } from '../hooks/useCustomAlert';
@@ -76,12 +76,9 @@ export default function LoginScreen() {
         });
         
         // Verificar si el usuario tiene tipo configurado
-        const hasType = await hasUserType();
-        if (hasType) {
-          // Redirigir según el tipo de usuario
-          const userType = await getUserType();
-          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-          router.push(initialRoute);
+        const canEnter = (await getIsPlatformAdmin()) || (await hasUserType());
+        if (canEnter) {
+          router.push(await getInitialAppRoute());
         } else {
           router.push('/select-user-type');
         }
@@ -173,12 +170,9 @@ export default function LoginScreen() {
         });
         
         // Verificar si el usuario tiene tipo configurado
-        const hasType = await hasUserType();
-        if (hasType) {
-          // Redirigir según el tipo de usuario
-          const userType = await getUserType();
-          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-          router.push(initialRoute);
+        const canEnter = (await getIsPlatformAdmin()) || (await hasUserType());
+        if (canEnter) {
+          router.push(await getInitialAppRoute());
         } else {
           router.push('/select-user-type');
         }
@@ -281,12 +275,9 @@ export default function LoginScreen() {
               sessionExists: !!signInData.session,
             });
             // Si puede iniciar sesión, verificar tipo de usuario
-            const hasType = await hasUserType();
-            if (hasType) {
-              // Redirigir según el tipo de usuario
-              const userType = await getUserType();
-              const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-              router.push(initialRoute);
+            const canEnter = (await getIsPlatformAdmin()) || (await hasUserType());
+            if (canEnter) {
+              router.push(await getInitialAppRoute());
             } else {
               router.push('/select-user-type');
             }

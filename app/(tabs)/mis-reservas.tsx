@@ -21,10 +21,15 @@ import {
 } from '../../lib/reservas';
 import {
   obtenerSolicitudesRetoPiscinaJugador,
+  obtenerRetosDirectosJugador,
   obtenerEstadosPartidoPorReservas,
   aceptarSolicitud,
   rechazarSolicitud,
+  aceptarRetoDirectoJugador,
+  rechazarRetoDirectoJugador,
+  cancelarRetoDirectoJugador,
   SolicitudRetoPiscinaItem,
+  RetoDirectoItem,
 } from '../../lib/partidos';
 import { obtenerMensajesNoLeidosPorSolicitud } from '../../lib/mensajesSolicitud';
 import PublicarPartidoModal from '../../components/PublicarPartidoModal';
@@ -47,7 +52,19 @@ type SolicitudListRow =
       id: string;
       item: SolicitudRetoPiscinaItem;
       section: 'pendiente' | 'historial';
+    }
+  | {
+      kind: 'reto_directo';
+      id: string;
+      item: RetoDirectoItem;
+      section: 'pendiente' | 'historial';
     };
+
+type SolicitudMixRow = Extract<SolicitudListRow, { kind: 'solicitud' | 'reto_directo' }>;
+
+function mixRowTimestamp(row: SolicitudMixRow): number {
+  return new Date(row.item.created_at).getTime();
+}
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('es-HN', {
@@ -113,6 +130,7 @@ export default function MisPotrasScreen() {
   const [reservasHasMore, setReservasHasMore] = useState(true);
   const [loadingMoreReservas, setLoadingMoreReservas] = useState(false);
   const [solicitudes, setSolicitudes] = useState<SolicitudRetoPiscinaItem[]>([]);
+  const [retosDirectos, setRetosDirectos] = useState<RetoDirectoItem[]>([]);
   const [estadoPartidoPorReservaId, setEstadoPartidoPorReservaId] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +150,7 @@ export default function MisPotrasScreen() {
   const [showPublicarModal, setShowPublicarModal] = useState(false);
   const [reservaIdPublicar, setReservaIdPublicar] = useState<string | undefined>();
   const [procesandoSolicitudId, setProcesandoSolicitudId] = useState<string | null>(null);
+  const [procesandoRetoId, setProcesandoRetoId] = useState<string | null>(null);
   const [noLeidosPorSolicitud, setNoLeidosPorSolicitud] = useState<Record<string, number>>({});
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } =
     useCustomAlert();
@@ -156,9 +175,14 @@ export default function MisPotrasScreen() {
     solicitudesEnCursoRef.current = true;
     setLoadingSolicitudes(true);
     try {
-      const solicitudesResult = await obtenerSolicitudesRetoPiscinaJugador()
-        .then((value) => ({ status: 'fulfilled' as const, value }))
-        .catch((reason) => ({ status: 'rejected' as const, reason }));
+      const [solicitudesResult, retosResult] = await Promise.all([
+        obtenerSolicitudesRetoPiscinaJugador()
+          .then((value) => ({ status: 'fulfilled' as const, value }))
+          .catch((reason) => ({ status: 'rejected' as const, reason })),
+        obtenerRetosDirectosJugador()
+          .then((value) => ({ status: 'fulfilled' as const, value }))
+          .catch((reason) => ({ status: 'rejected' as const, reason })),
+      ]);
 
       if (solicitudesResult.status === 'fulfilled') {
         setSolicitudes(solicitudesResult.value);
@@ -181,7 +205,13 @@ export default function MisPotrasScreen() {
         console.error('Error solicitudes:', solicitudesResult.reason);
       }
 
-      return { solicitudesResult };
+      if (retosResult.status === 'fulfilled') {
+        setRetosDirectos(retosResult.value);
+      } else {
+        console.error('Error retos directos:', retosResult.reason);
+      }
+
+      return { solicitudesResult, retosResult };
     } finally {
       solicitudesEnCursoRef.current = false;
       setLoadingSolicitudes(false);
@@ -399,7 +429,25 @@ export default function MisPotrasScreen() {
     [solicitudes]
   );
 
-  const totalPendientesRecibidas = solicitudesPendientes.filter((s) => s.direccion === 'recibida').length;
+  const retosPendientes = useMemo(
+    () =>
+      retosDirectos
+        .filter((r) => r.estado === 'pendiente')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [retosDirectos]
+  );
+
+  const retosHistorial = useMemo(
+    () =>
+      retosDirectos
+        .filter((r) => r.estado === 'rechazado' || r.estado === 'cancelado')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [retosDirectos]
+  );
+
+  const totalPendientesRecibidas =
+    solicitudesPendientes.filter((s) => s.direccion === 'recibida').length +
+    retosPendientes.filter((r) => r.direccion === 'recibido').length;
 
   const totalMensajesNoLeidos = useMemo(
     () => Object.values(noLeidosPorSolicitud).reduce((sum, n) => sum + n, 0),
@@ -444,6 +492,48 @@ export default function MisPotrasScreen() {
     }
   };
 
+  const handleAceptarRetoDirecto = async (retoId: string) => {
+    try {
+      setProcesandoRetoId(retoId);
+      await aceptarRetoDirectoJugador(retoId);
+      showSuccess('Listo', 'Reto aceptado. Lo verás como rival en tus reservas.');
+      await Promise.all([reloadReservas(), loadSolicitudesYPartidos()]);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'No se pudo aceptar el reto';
+      showError('Error', msg);
+    } finally {
+      setProcesandoRetoId(null);
+    }
+  };
+
+  const handleRechazarRetoDirecto = async (retoId: string) => {
+    try {
+      setProcesandoRetoId(retoId);
+      await rechazarRetoDirectoJugador(retoId);
+      showSuccess('Listo', 'Reto rechazado');
+      await loadSolicitudesYPartidos();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'No se pudo rechazar el reto';
+      showError('Error', msg);
+    } finally {
+      setProcesandoRetoId(null);
+    }
+  };
+
+  const handleCancelarRetoDirecto = async (retoId: string) => {
+    try {
+      setProcesandoRetoId(retoId);
+      await cancelarRetoDirectoJugador(retoId);
+      showSuccess('Listo', 'Invitación cancelada');
+      await loadSolicitudesYPartidos();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'No se pudo cancelar el reto';
+      showError('Error', msg);
+    } finally {
+      setProcesandoRetoId(null);
+    }
+  };
+
   const abrirPublicar = (reservaId: string) => {
     setReservaIdPublicar(reservaId);
     setShowPublicarModal(true);
@@ -451,30 +541,65 @@ export default function MisPotrasScreen() {
 
   const solicitudesFlatData = useMemo((): SolicitudListRow[] => {
     const rows: SolicitudListRow[] = [];
-    if (solicitudesPendientes.length > 0) {
+    const pendientesMix: SolicitudMixRow[] = [
+      ...solicitudesPendientes.map(
+        (sol): SolicitudMixRow => ({
+          kind: 'solicitud',
+          id: `pend-sol-${sol.id}`,
+          item: sol,
+          section: 'pendiente',
+        })
+      ),
+      ...retosPendientes.map(
+        (reto): SolicitudMixRow => ({
+          kind: 'reto_directo',
+          id: `pend-reto-${reto.id}`,
+          item: reto,
+          section: 'pendiente',
+        })
+      ),
+    ].sort((a, b) => mixRowTimestamp(b) - mixRowTimestamp(a));
+
+    if (pendientesMix.length > 0) {
       rows.push({
         kind: 'header',
         id: 'header-pendientes',
         title: 'Pendientes',
-        subtitle: 'Solicitudes en espera de respuesta',
+        subtitle: 'Solicitudes de piscina e invitaciones directas',
       });
-      for (const sol of solicitudesPendientes) {
-        rows.push({ kind: 'solicitud', id: `pend-${sol.id}`, item: sol, section: 'pendiente' });
-      }
+      rows.push(...pendientesMix);
     }
-    if (solicitudesHistorial.length > 0) {
+
+    const historialMix: SolicitudMixRow[] = [
+      ...solicitudesHistorial.map(
+        (sol): SolicitudMixRow => ({
+          kind: 'solicitud',
+          id: `hist-sol-${sol.id}`,
+          item: sol,
+          section: 'historial',
+        })
+      ),
+      ...retosHistorial.map(
+        (reto): SolicitudMixRow => ({
+          kind: 'reto_directo',
+          id: `hist-reto-${reto.id}`,
+          item: reto,
+          section: 'historial',
+        })
+      ),
+    ].sort((a, b) => mixRowTimestamp(b) - mixRowTimestamp(a));
+
+    if (historialMix.length > 0) {
       rows.push({
         kind: 'header',
         id: 'header-historial',
         title: 'Historial',
-        subtitle: 'Rechazadas y canceladas · las confirmadas están en Reservas',
+        subtitle: 'Rechazadas y canceladas · confirmados en Reservas',
       });
-      for (const sol of solicitudesHistorial) {
-        rows.push({ kind: 'solicitud', id: `hist-${sol.id}`, item: sol, section: 'historial' });
-      }
+      rows.push(...historialMix);
     }
     return rows;
-  }, [solicitudesPendientes, solicitudesHistorial]);
+  }, [solicitudesPendientes, solicitudesHistorial, retosPendientes, retosHistorial]);
 
   const listaVaciaReservas = seccion === 'reservas' && reservas.length === 0;
   const listaVaciaSolicitudes = seccion === 'solicitudes' && solicitudesFlatData.length === 0;
@@ -503,6 +628,33 @@ export default function MisPotrasScreen() {
       if (row.kind === 'header') {
         return <SectionHeader title={row.title} subtitle={row.subtitle} colors={colors} />;
       }
+      if (row.kind === 'reto_directo') {
+        const reto = row.item;
+        const esPendiente = row.section === 'pendiente';
+        return (
+          <RetoDirectoCard
+            item={reto}
+            colors={colors}
+            destacado={esPendiente && reto.direccion === 'recibido'}
+            procesando={procesandoRetoId === reto.id}
+            onAceptar={
+              esPendiente && reto.direccion === 'recibido' && reto.estado === 'pendiente'
+                ? () => handleAceptarRetoDirecto(reto.id)
+                : undefined
+            }
+            onRechazar={
+              esPendiente && reto.direccion === 'recibido' && reto.estado === 'pendiente'
+                ? () => handleRechazarRetoDirecto(reto.id)
+                : undefined
+            }
+            onCancelar={
+              esPendiente && reto.direccion === 'enviado' && reto.estado === 'pendiente'
+                ? () => handleCancelarRetoDirecto(reto.id)
+                : undefined
+            }
+          />
+        );
+      }
       const sol = row.item;
       const esPendiente = row.section === 'pendiente';
       return (
@@ -530,9 +682,13 @@ export default function MisPotrasScreen() {
       colors,
       noLeidosPorSolicitud,
       procesandoSolicitudId,
+      procesandoRetoId,
       handleAbrirConversacion,
       handleAceptarSolicitud,
       handleRechazarSolicitud,
+      handleAceptarRetoDirecto,
+      handleRechazarRetoDirecto,
+      handleCancelarRetoDirecto,
     ]
   );
 
@@ -576,7 +732,7 @@ export default function MisPotrasScreen() {
       <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
         <Text style={[styles.title, { color: colors.text }]}>Mis Potras</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Tus canchas reservadas y solicitudes de partido
+          Tus canchas reservadas, solicitudes e invitaciones directas
         </Text>
       </View>
 
@@ -699,7 +855,7 @@ export default function MisPotrasScreen() {
             <EmptyState
               variant="waitingPlayers"
               title="Sin solicitudes"
-              text="Las solicitudes que envíes o recibas aparecerán aquí. Los rivales confirmados se ven en Reservas."
+              text="Las solicitudes de piscina y los retos directos que envíes o recibas aparecerán aquí. Los rivales confirmados se ven en Reservas."
             />
           }
         />
@@ -855,6 +1011,129 @@ function ReservaCard({
             <Ionicons name="close-circle-outline" size={18} color={Colors.error} />
             <Text style={[styles.actionButtonText, { color: Colors.error }]}>Cancelar</Text>
           </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function RetoDirectoCard({
+  item,
+  colors,
+  onAceptar,
+  onRechazar,
+  onCancelar,
+  destacado,
+  procesando,
+}: {
+  item: RetoDirectoItem;
+  colors: ReturnType<typeof useThemeColors>;
+  onAceptar?: () => void;
+  onRechazar?: () => void;
+  onCancelar?: () => void;
+  destacado?: boolean;
+  procesando?: boolean;
+}) {
+  const fh = item.reservaFechaHora ? formatFechaHora(item.reservaFechaHora) : null;
+  const estadoColor = getEstadoColor(item.estado);
+  const contrincante =
+    item.direccion === 'enviado'
+      ? `Invitaste a ${item.contrincanteNombre}`
+      : `Invitación de ${item.contrincanteNombre}`;
+
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.surface,
+          borderColor: destacado ? Colors.primary + '60' : colors.border,
+          borderLeftWidth: destacado ? 4 : 1,
+        },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={[styles.inlineBadge, { backgroundColor: Colors.primary + '20' }]}>
+          <Ionicons name="person-outline" size={14} color={Colors.primary} />
+          <Text style={[styles.inlineBadgeText, { color: Colors.primary }]}>Reto directo</Text>
+        </View>
+        <View style={[styles.estadoBadge, { backgroundColor: estadoColor + '20' }]}>
+          <Text style={[styles.estadoBadgeText, { color: estadoColor }]}>{getEstadoTexto(item.estado)}</Text>
+        </View>
+      </View>
+      <Text style={[styles.cardTitle, { color: colors.text, marginTop: Spacing.xs }]}>{contrincante}</Text>
+      {item.canchaNombre && (
+        <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+          {item.canchaNombre}
+          {item.complejoNombre ? ` · ${item.complejoNombre}` : ''}
+        </Text>
+      )}
+      {fh && <InfoRow icon="calendar-outline" label="Partido" value={`${fh.fecha} · ${fh.hora}`} colors={colors} />}
+      {item.mensaje ? (
+        <Text style={[styles.mensajeText, { color: colors.textSecondary }]} numberOfLines={2}>
+          {item.mensaje}
+        </Text>
+      ) : null}
+      <View style={styles.solicitudFooter}>
+        <DireccionBadge
+          direccion={item.direccion === 'enviado' ? 'Invitación enviada' : 'Invitación recibida'}
+          colors={colors}
+        />
+      </View>
+      {(onAceptar || onRechazar || onCancelar) && (
+        <View style={styles.solicitudActions}>
+          {onCancelar && (
+            <TouchableOpacity
+              style={[styles.actionButton, { borderColor: Colors.error, flex: 1 }]}
+              onPress={onCancelar}
+              disabled={procesando}
+            >
+              {procesando ? (
+                <ActivityIndicator size="small" color={Colors.error} />
+              ) : (
+                <>
+                  <Ionicons name="close-outline" size={18} color={Colors.error} />
+                  <Text style={[styles.actionButtonText, { color: Colors.error }]}>Cancelar</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+          {onRechazar && (
+            <TouchableOpacity
+              style={[styles.actionButton, { borderColor: Colors.error, flex: 1 }]}
+              onPress={onRechazar}
+              disabled={procesando}
+            >
+              {procesando ? (
+                <ActivityIndicator size="small" color={Colors.error} />
+              ) : (
+                <>
+                  <Ionicons name="close-outline" size={18} color={Colors.error} />
+                  <Text style={[styles.actionButtonText, { color: Colors.error }]}>Rechazar</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+          {onAceptar && (
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.actionButtonPrimary,
+                { backgroundColor: Colors.success, borderColor: Colors.success, flex: 1 },
+              ]}
+              onPress={onAceptar}
+              disabled={procesando}
+            >
+              {procesando ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-outline" size={18} color={Colors.textInverse} />
+                  <Text style={[styles.actionButtonText, { color: Colors.textInverse }]}>Aceptar</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>

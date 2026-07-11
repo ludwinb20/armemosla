@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { globalStyles } from '../styles/globalStyles';
 import { Colors } from '../constants/theme';
-import { hasUserType, getUserType } from '../lib/user';
+import { hasUserType, getInitialAppRoute, getIsPlatformAdmin } from '../lib/user';
 import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
 
 export default function Index() {
@@ -18,13 +18,8 @@ export default function Index() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
-          // Hay sesión activa, verificar si tiene tipo de usuario configurado
-          const hasType = await hasUserType();
-          if (hasType) {
-            // Redirigir según el tipo de usuario
-            const userType = await getUserType();
-            const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-            router.replace(initialRoute);
+          if ((await getIsPlatformAdmin()) || (await hasUserType())) {
+            router.replace(await getInitialAppRoute());
           } else {
             router.replace('/select-user-type');
           }
@@ -45,13 +40,8 @@ export default function Index() {
     // Escuchar cambios de autenticación
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        // Verificar si tiene tipo de usuario configurado
-        const hasType = await hasUserType();
-        if (hasType) {
-          // Redirigir según el tipo de usuario
-          const userType = await getUserType();
-          const initialRoute = userType === 'Jugador' ? '/(tabs)/armemosla' : '/(tabs)/home';
-          router.replace(initialRoute);
+        if ((await getIsPlatformAdmin()) || (await hasUserType())) {
+          router.replace(await getInitialAppRoute());
         } else {
           router.replace('/select-user-type');
         }

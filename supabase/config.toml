@@ -4,29 +4,11 @@
 [functions.auto-completar-reservas]
 verify_jwt = false
 
-[functions.paypal-create-order]
+[functions.pixelpay-charge]
 verify_jwt = false
 
-[functions.paypal-capture-order]
+[functions.pixelpay-tokenize]
 verify_jwt = false
 
-[functions.paypal-webhook]
-verify_jwt = false
-
-[functions.paypal-pay-saved]
-verify_jwt = false
-
-[functions.paypal-add-card]
-verify_jwt = false
-
-[functions.paypal-complete-add-card]
-verify_jwt = false
-
-[functions.paypal-payment-methods]
-verify_jwt = false
-
-[functions.paypal-return-redirect]
-verify_jwt = false
-
-[functions.paypal-cancel-redirect]
+[functions.pixelpay-payment-methods]
 verify_jwt = false

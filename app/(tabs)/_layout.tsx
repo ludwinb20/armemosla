@@ -11,7 +11,7 @@ import PlayerLoadingView from '../../components/lottie/PlayerLoadingView';
 
 export default function TabLayout() {
   const colors = useThemeColors();
-  const { userType, loadingUserType } = useUserType();
+  const { userType, isPlatformAdmin, loadingUserType } = useUserType();
   const { isChecking, hasAccess } = useRoleCheck();
 
   if (isChecking) {
@@ -26,6 +26,65 @@ export default function TabLayout() {
 
   if (!hasAccess) {
     return null;
+  }
+
+  if (isPlatformAdmin) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+          <Tabs
+            key="tabs-platform-admin"
+            initialRouteName="revision-pagos"
+            screenOptions={{
+              tabBarActiveTintColor: Colors.primary,
+              tabBarInactiveTintColor: colors.textSecondary,
+              headerShown: false,
+              tabBarStyle: {
+                backgroundColor: colors.background,
+                borderTopColor: colors.borderLight,
+                borderTopWidth: 1,
+                paddingBottom: 5,
+                paddingTop: 5,
+                height: 60,
+              },
+              tabBarLabelStyle: {
+                fontSize: 12,
+                fontWeight: '500',
+              },
+            }}
+          >
+            <Tabs.Screen
+              name="revision-pagos"
+              options={{
+                title: 'Inicio',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="home-outline" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="perfil"
+              options={{
+                title: 'Perfil',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="person-outline" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen name="home" options={{ href: null }} />
+            <Tabs.Screen name="instalaciones" options={{ href: null }} />
+            <Tabs.Screen name="pagos" options={{ href: null }} />
+            <Tabs.Screen name="estadisticas" options={{ href: null }} />
+            <Tabs.Screen name="armemosla" options={{ href: null }} />
+            <Tabs.Screen name="mis-reservas" options={{ href: null }} />
+            <Tabs.Screen name="logros" options={{ href: null }} />
+            <Tabs.Screen name="complejos" options={{ href: null }} />
+            <Tabs.Screen name="canchas" options={{ href: null }} />
+            <Tabs.Screen name="reservas" options={{ href: null }} />
+          </Tabs>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
   }
 
   const isJugador = userType === 'Jugador';
@@ -139,7 +198,16 @@ export default function TabLayout() {
             }}
           />
 
-          {/* Tabs ocultos (solo para navegación programática) */}
+          <Tabs.Screen
+            name="revision-pagos"
+            options={{
+              title: 'Revisión pagos',
+              tabBarIcon: ({ color, size }) => (
+                <Ionicons name="checkmark-done-outline" size={size} color={color} />
+              ),
+              href: null,
+            }}
+          />
           <Tabs.Screen
             name="complejos"
             options={{ href: null }}

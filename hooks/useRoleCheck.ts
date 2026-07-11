@@ -5,7 +5,7 @@ import { useUserType } from '../contexts/UserTypeContext';
 
 export function useRoleCheck() {
   const router = useRouter();
-  const { userType, loadingUserType } = useUserType();
+  const { userType, isPlatformAdmin, loadingUserType } = useUserType();
   const [isChecking, setIsChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
@@ -28,7 +28,7 @@ export function useRoleCheck() {
           return;
         }
 
-        if (!userType) {
+        if (!userType && !isPlatformAdmin) {
           router.replace('/select-user-type');
           setHasAccess(false);
           return;
@@ -45,7 +45,7 @@ export function useRoleCheck() {
     };
 
     void checkRole();
-  }, [userType, loadingUserType, router]);
+  }, [userType, isPlatformAdmin, loadingUserType, router]);
 
   return { isChecking: loadingUserType || isChecking, hasAccess };
 }

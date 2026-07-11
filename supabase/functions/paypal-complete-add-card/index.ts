@@ -38,14 +38,20 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const setupTokenId = body?.setup_token_id as string | undefined;
     if (!setupTokenId) {
+      console.error('[paypal-complete-add-card] falta setup_token_id');
       return jsonResponse({ ok: false, error: 'setup_token_id requerido' }, 400);
     }
+
+    console.log('[paypal-complete-add-card] user=', user.id, 'setup_token=', setupTokenId.slice(0, 8) + '…');
 
     const vaultResponse = await createPaymentTokenFromSetup(setupTokenId);
     const vaultId = vaultResponse.id as string | undefined;
     if (!vaultId) {
-      return jsonResponse({ ok: false, error: 'PayPal no devolvió el token de la tarjeta' }, 502);
+      console.error('[paypal-complete-add-card] sin vault id', vaultResponse);
+      return jsonResponse({ ok: false, error: 'PayPal no devolvió el token de la tarjeta', details: vaultResponse }, 502);
     }
+
+    console.log('[paypal-complete-add-card] vault_id=', vaultId);
 
     const paymentSource = vaultResponse.payment_source as Record<string, unknown> | undefined;
     const card = paymentSource?.card as
@@ -60,8 +66,8 @@ Deno.serve(async (req) => {
 
     return jsonResponse({ ok: true, vault_id: vaultId });
   } catch (error) {
-    console.error('[paypal-complete-add-card]', error);
     const message = error instanceof Error ? error.message : 'Error interno';
+    console.error('[paypal-complete-add-card] ERROR', message, error);
     return jsonResponse({ ok: false, error: message }, 500);
   }
 });

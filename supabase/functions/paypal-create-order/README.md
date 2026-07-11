@@ -51,6 +51,8 @@ La app **nunca** toca números de tarjeta. PayPal tokeniza y vaultea; nosotros g
 
 Activar **Advanced Credit and Debit Card Processing** y **Vault** en tu app REST de PayPal Developer.
 
+Guía paso a paso: [docs/PAYPAL_VAULT_SETUP.md](../../docs/PAYPAL_VAULT_SETUP.md)
+
 ## Deploy
 
 ```bash

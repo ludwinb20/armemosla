@@ -46,7 +46,12 @@ async function getAccessToken(): Promise<string> {
   return session.access_token;
 }
 
-async function callFunction<T>(path: string, init?: RequestInit): Promise<T> {
+async function callFunction<T>(
+  path: string,
+  init?: RequestInit,
+  logTag?: string
+): Promise<T> {
+  const tag = logTag ?? path;
   const token = await getAccessToken();
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -55,22 +60,42 @@ async function callFunction<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(`${supabaseUrl}/functions/v1/${path}`, {
+
+  const url = `${supabaseUrl}/functions/v1/${path}`;
+  console.log(`[PayPal:${tag}] → ${init?.method ?? 'GET'} ${path}`);
+
+  const res = await fetch(url, {
     ...init,
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
-  let data: T & { ok?: boolean; error?: string };
+
+  let data: T & { ok?: boolean; error?: string; details?: unknown; debug?: unknown };
+  const rawText = await res.text();
   try {
-    data = (await res.json()) as T & { ok?: boolean; error?: string };
+    data = JSON.parse(rawText) as T & { ok?: boolean; error?: string; details?: unknown; debug?: unknown };
   } catch {
+    console.error(`[PayPal:${tag}] respuesta no JSON`, {
+      status: res.status,
+      body: rawText.slice(0, 500),
+    });
     if (res.status === 404) {
       throw new Error(`Servicio de pagos no disponible (${path}). ¿Está desplegado en Supabase?`);
     }
     throw new Error(`Error ${res.status} en el servidor de pagos`);
   }
+
   if (!res.ok || data.ok === false) {
+    console.error(`[PayPal:${tag}] error`, {
+      status: res.status,
+      error: data.error,
+      details: data.details,
+      debug: data.debug,
+      body: data,
+    });
     throw new Error(data.error ?? 'Error en el servidor de pagos');
   }
+
+  console.log(`[PayPal:${tag}] OK`);
   return data;
 }
 
@@ -110,12 +135,27 @@ export async function pagarConMetodoGuardado(
 /** Confirma tarjeta guardada tras volver del checkout PayPal (setup token → vault). */
 export async function confirmarTarjetaAgregada(setupTokenId?: string): Promise<void> {
   if (!setupTokenId) {
+    console.error('[PayPal:add-card:confirm] sin setup token en URL de retorno');
     throw new Error('PayPal no devolvió el token de confirmación');
   }
-  await callFunction('paypal-complete-add-card', {
-    method: 'POST',
-    body: JSON.stringify({ setup_token_id: setupTokenId }),
-  });
+  console.log('[PayPal:add-card:confirm] setup_token_id=', setupTokenId.slice(0, 8) + '…');
+  await callFunction(
+    'paypal-complete-add-card',
+    {
+      method: 'POST',
+      body: JSON.stringify({ setup_token_id: setupTokenId }),
+    },
+    'add-card:confirm'
+  );
+}
+
+export async function diagnosticarPayPal(): Promise<{
+  ok: boolean;
+  vault_disponible: boolean;
+  recomendaciones: string[];
+  diagnose?: Record<string, unknown>;
+}> {
+  return callFunction('paypal-diagnose', { method: 'GET' }, 'diagnose');
 }
 
 export async function iniciarAgregarTarjeta(): Promise<{
@@ -123,7 +163,17 @@ export async function iniciarAgregarTarjeta(): Promise<{
   approval_url: string;
   setup_token_id: string;
 }> {
-  return callFunction('paypal-add-card', { method: 'POST', body: '{}' });
+  console.log('[PayPal:add-card] solicitando setup token…');
+  const res = await callFunction<{
+    ok: boolean;
+    approval_url: string;
+    setup_token_id: string;
+  }>('paypal-add-card', { method: 'POST', body: '{}' }, 'add-card:start');
+  console.log('[PayPal:add-card] approval_url recibida', {
+    setup_token_id: res.setup_token_id?.slice(0, 8) + '…',
+    approval_url: res.approval_url?.slice(0, 60) + '…',
+  });
+  return res;
 }
 
 export async function listarMetodosPago(): Promise<MetodoPagoPayPal[]> {

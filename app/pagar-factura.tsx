@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
-  Modal,
+  TextInput,
+  Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../constants/theme';
@@ -17,25 +19,19 @@ import { useThemeColors } from '../hooks/useThemeColors';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import CustomAlert from '../components/CustomAlert';
 import PlayerLoadingView from '../components/lottie/PlayerLoadingView';
+import { getFacturaById, getTotalAPagar, FacturaWithDetalles } from '../lib/pagos';
 import {
-  getFacturaById,
-  getTotalAPagar,
-  FacturaWithDetalles,
-  moraCongelada,
-  getFechaOcultamientoComplejos,
-} from '../lib/pagos';
-import {
-  solicitarPagoPayPal,
-  confirmarPagoPayPal,
-  confirmarTarjetaAgregada,
-  pagarConMetodoGuardado,
-  iniciarAgregarTarjeta,
+  pagarFacturaConTarjeta,
+  pagarFacturaConTarjetaGuardada,
+  guardarTarjeta as tokenizarTarjeta,
   listarMetodosPago,
   eliminarMetodoPago,
   marcarMetodoPredeterminado,
   etiquetaMetodoPago,
-  MetodoPagoPayPal,
-} from '../lib/paypal';
+  parseExpiry,
+  validarDatosTarjeta,
+  MetodoPagoTarjeta,
+} from '../lib/pixelpay';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -52,17 +48,16 @@ export default function PagarFacturaScreen() {
   const [loading, setLoading] = useState(true);
   const [procesando, setProcesando] = useState(false);
   const [factura, setFactura] = useState<FacturaWithDetalles | null>(null);
-  const [metodos, setMetodos] = useState<MetodoPagoPayPal[]>([]);
+  const [metodos, setMetodos] = useState<MetodoPagoTarjeta[]>([]);
   const [metodoSeleccionado, setMetodoSeleccionado] = useState<string | null>(null);
-  const [webViewUrl, setWebViewUrl] = useState<string | null>(null);
-  const [webViewLoading, setWebViewLoading] = useState(false);
-  const [webViewModo, setWebViewModo] = useState<'pago' | 'tarjeta'>('pago');
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
-  const checkoutFinalizado = useRef(false);
-  const facturaRef = useRef(factura);
-  const webViewModoRef = useRef(webViewModo);
-  facturaRef.current = factura;
-  webViewModoRef.current = webViewModo;
+  const [usarNuevaTarjeta, setUsarNuevaTarjeta] = useState(false);
+  const [debeGuardarTarjeta, setDebeGuardarTarjeta] = useState(true);
+
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
 
   const cargar = useCallback(async () => {
     if (!facturaId) return;
@@ -71,7 +66,7 @@ export default function PagarFacturaScreen() {
       setErrorCarga(null);
       const [facturaData, metodosData] = await Promise.all([
         getFacturaById(facturaId),
-        listarMetodosPago().catch(() => [] as MetodoPagoPayPal[]),
+        listarMetodosPago().catch(() => [] as MetodoPagoTarjeta[]),
       ]);
       if (!facturaData) {
         setErrorCarga('No se encontró la factura');
@@ -82,6 +77,7 @@ export default function PagarFacturaScreen() {
       setMetodos(metodosData);
       const predeterminado = metodosData.find((m) => m.es_predeterminado) ?? metodosData[0];
       setMetodoSeleccionado(predeterminado?.id ?? null);
+      setUsarNuevaTarjeta(metodosData.length === 0);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'No se pudo cargar la factura';
       setErrorCarga(msg);
@@ -103,11 +99,23 @@ export default function PagarFacturaScreen() {
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('es-HN', { style: 'currency', currency: 'HNL' }).format(amount);
 
+  const buildDatosTarjeta = () => {
+    const parsed = parseExpiry(cardExpiry);
+    if (!parsed) return null;
+    return {
+      card_number: cardNumber,
+      card_holder: cardHolder,
+      card_cvv: cardCvv,
+      expire_month: parsed.month,
+      expire_year: parsed.year,
+    };
+  };
+
   const handlePagarConGuardada = async () => {
     if (!factura || !metodoSeleccionado) return;
     try {
       setProcesando(true);
-      await pagarConMetodoGuardado(factura.id, metodoSeleccionado);
+      await pagarFacturaConTarjetaGuardada(factura.id, metodoSeleccionado);
       showSuccess('Pago exitoso', 'Tu factura fue pagada correctamente', () => router.replace('/(tabs)/pagos'));
     } catch (e) {
       showError('No se pudo cobrar', e instanceof Error ? e.message : 'Intentá con otra tarjeta');
@@ -116,109 +124,71 @@ export default function PagarFacturaScreen() {
     }
   };
 
-  const abrirWebView = (url: string, modo: 'pago' | 'tarjeta') => {
-    checkoutFinalizado.current = false;
-    setWebViewModo(modo);
-    setWebViewUrl(url);
-    setWebViewLoading(true);
-  };
-
   const handlePagarConNuevaTarjeta = async () => {
     if (!factura) return;
+    const datos = buildDatosTarjeta();
+    if (!datos) {
+      showError('Datos incompletos', 'Revisá el vencimiento (MM/AA)');
+      return;
+    }
+    const errorValidacion = validarDatosTarjeta(datos);
+    if (errorValidacion) {
+      showError('Datos incompletos', errorValidacion);
+      return;
+    }
     try {
       setProcesando(true);
-      const res = await solicitarPagoPayPal(factura.id);
-      if (res.approval_url) {
-        abrirWebView(res.approval_url, 'pago');
-      } else {
-        showError('Error', 'PayPal no devolvió la URL de checkout');
-      }
+      await pagarFacturaConTarjeta(factura.id, datos, debeGuardarTarjeta);
+      showSuccess('Pago exitoso', 'Tu factura fue pagada correctamente', () => router.replace('/(tabs)/pagos'));
     } catch (e) {
-      showError('Error', e instanceof Error ? e.message : 'No se pudo iniciar el pago');
+      showError('Pago rechazado', e instanceof Error ? e.message : 'No se pudo procesar el pago');
     } finally {
       setProcesando(false);
     }
   };
 
-  const handleAgregarTarjeta = async () => {
+  const handleSoloGuardarTarjeta = async () => {
+    const datos = buildDatosTarjeta();
+    if (!datos) {
+      showError('Datos incompletos', 'Revisá el vencimiento (MM/AA)');
+      return;
+    }
+    const errorValidacion = validarDatosTarjeta(datos);
+    if (errorValidacion) {
+      showError('Datos incompletos', errorValidacion);
+      return;
+    }
     try {
       setProcesando(true);
-      const res = await iniciarAgregarTarjeta();
-      abrirWebView(res.approval_url, 'tarjeta');
+      await tokenizarTarjeta(datos);
+      setCardNumber('');
+      setCardCvv('');
+      setCardExpiry('');
+      await cargar();
+      setUsarNuevaTarjeta(false);
+      showSuccess('Tarjeta guardada', 'Podés usarla en tus próximos pagos');
     } catch (e) {
-      showError('Error', e instanceof Error ? e.message : 'No se pudo agregar la tarjeta');
+      showError('Error', e instanceof Error ? e.message : 'No se pudo guardar la tarjeta');
     } finally {
       setProcesando(false);
     }
-  };
-
-  const finalizarCheckout = async (url: string) => {
-    setWebViewUrl(null);
-    setWebViewLoading(false);
-    try {
-      setProcesando(true);
-      const tokenMatch = url.match(/[?&]token=([^&]+)/);
-      const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : undefined;
-      if (webViewModoRef.current === 'pago' && facturaRef.current) {
-        await confirmarPagoPayPal({
-          facturaId: facturaRef.current.id,
-          paypalOrderId: token,
-        });
-        showSuccess('Pago exitoso', 'Tu factura fue pagada correctamente', () =>
-          router.replace('/(tabs)/pagos')
-        );
-      } else {
-        await confirmarTarjetaAgregada(token);
-        await cargar();
-        showSuccess('Tarjeta guardada', 'Tu método de pago quedó registrado de forma segura');
-      }
-    } catch (e) {
-      showError(
-        'Confirmación pendiente',
-        e instanceof Error ? e.message : 'El pago puede tardar unos segundos. Revisá Pagos.'
-      );
-      router.replace('/(tabs)/pagos');
-    } finally {
-      setProcesando(false);
-    }
-  };
-
-  const interceptarRedirect = (url: string): boolean => {
-    if (url.startsWith('armemosla://pagos/return') || url.includes('paypal-return-redirect')) {
-      if (!checkoutFinalizado.current) {
-        checkoutFinalizado.current = true;
-        void finalizarCheckout(url);
-      }
-      return false;
-    }
-    if (url.startsWith('armemosla://pagos/cancel') || url.includes('paypal-cancel-redirect')) {
-      setWebViewUrl(null);
-      setWebViewLoading(false);
-      return false;
-    }
-    return true;
   };
 
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <PlayerLoadingView message="Preparando pago seguro..." />
+        <PlayerLoadingView message="Preparando pago..." />
       </SafeAreaView>
     );
   }
 
-  if (!factura) {
+  if (errorCarga || !factura) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.errorState}>
           <Ionicons name="alert-circle-outline" size={48} color={Colors.error} />
-          <Text style={[styles.errorTitle, { color: colors.text }]}>
-            {errorCarga ?? 'No se pudo cargar la factura'}
-          </Text>
-          <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: Colors.primary }]}
-            onPress={() => router.back()}
-          >
+          <Text style={[styles.errorTitle, { color: colors.text }]}>{errorCarga ?? 'Error'}</Text>
+          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: Colors.primary }]} onPress={() => router.back()}>
             <Text style={styles.primaryBtnText}>Volver</Text>
           </TouchableOpacity>
         </View>
@@ -229,156 +199,7 @@ export default function PagarFacturaScreen() {
   const total = getTotalAPagar(factura);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-      <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Pagar factura</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.resumen, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.periodo, { color: colors.textSecondary }]}>
-            {MESES[factura.mes - 1]} {factura.año}
-          </Text>
-          <Text style={[styles.total, { color: colors.text }]}>{formatCurrency(total)}</Text>
-          {(factura.monto_mora ?? 0) > 0 && (
-            <Text style={[styles.mora, { color: Colors.error }]}>
-              Incluye mora: {formatCurrency(factura.monto_mora ?? 0)}
-            </Text>
-          )}
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Métodos guardados</Text>
-
-        {metodos.length === 0 ? (
-          <Text style={[styles.empty, { color: colors.textSecondary }]}>
-            Todavía no tenés tarjetas guardadas. Agregá una para pagar en un toque la próxima vez.
-          </Text>
-        ) : (
-          metodos.map((m) => (
-            <TouchableOpacity
-              key={m.id}
-              style={[
-                styles.metodoCard,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: metodoSeleccionado === m.id ? Colors.primary : colors.border,
-                },
-                metodoSeleccionado === m.id && { borderWidth: 2 },
-              ]}
-              onPress={() => setMetodoSeleccionado(m.id)}
-            >
-              <Ionicons
-                name={metodoSeleccionado === m.id ? 'radio-button-on' : 'radio-button-off'}
-                size={22}
-                color={metodoSeleccionado === m.id ? Colors.primary : colors.textSecondary}
-              />
-              <Ionicons name="card-outline" size={24} color={colors.text} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.metodoLabel, { color: colors.text }]}>{etiquetaMetodoPago(m)}</Text>
-                {m.es_predeterminado && (
-                  <Text style={[styles.predeterminado, { color: Colors.primary }]}>Predeterminada</Text>
-                )}
-              </View>
-              <TouchableOpacity
-                onPress={() => void marcarMetodoPredeterminado(m.id).then(cargar)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="star-outline" size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() =>
-                  eliminarMetodoPago(m.id)
-                    .then(cargar)
-                    .catch((err) => showError('Error', err.message))
-                }
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="trash-outline" size={20} color={Colors.error} />
-              </TouchableOpacity>
-            </TouchableOpacity>
-          ))
-        )}
-
-        <TouchableOpacity
-          style={[styles.secondaryBtn, { borderColor: colors.border }]}
-          onPress={handleAgregarTarjeta}
-          disabled={procesando}
-        >
-          <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
-          <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Agregar tarjeta</Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.background }]}>
-        {metodoSeleccionado ? (
-          <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: Colors.primary }]}
-            onPress={handlePagarConGuardada}
-            disabled={procesando}
-          >
-            {procesando ? (
-              <ActivityIndicator color={Colors.textInverse} />
-            ) : (
-              <Text style={styles.primaryBtnText}>Pagar con tarjeta guardada</Text>
-            )}
-          </TouchableOpacity>
-        ) : null}
-        <TouchableOpacity
-          style={[styles.paypalBtn, { borderColor: '#0070BA' }]}
-          onPress={handlePagarConNuevaTarjeta}
-          disabled={procesando}
-        >
-          <Ionicons name="card" size={20} color="#0070BA" />
-          <Text style={styles.paypalBtnText}>Pagar con otra tarjeta</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Modal visible={!!webViewUrl} animationType="slide" onRequestClose={() => setWebViewUrl(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={[styles.webHeader, { borderBottomColor: colors.borderLight }]}>
-            <Text style={[styles.webTitle, { color: colors.text }]}>
-              {webViewModo === 'pago' ? 'Checkout seguro' : 'Agregar tarjeta'}
-            </Text>
-            <TouchableOpacity onPress={() => setWebViewUrl(null)}>
-              <Ionicons name="close" size={28} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-          {webViewUrl ? (
-            <View style={{ flex: 1 }}>
-              <WebView
-                source={{ uri: webViewUrl }}
-                originWhitelist={['https://*', 'http://*', 'armemosla://*']}
-                onShouldStartLoadWithRequest={(req) => interceptarRedirect(req.url)}
-                onNavigationStateChange={(nav) => {
-                  interceptarRedirect(nav.url);
-                }}
-                onLoadStart={() => setWebViewLoading(true)}
-                onLoadEnd={() => setWebViewLoading(false)}
-                onError={() => {
-                  setWebViewLoading(false);
-                  showError('Error', 'No se pudo cargar el checkout de PayPal');
-                }}
-              />
-              {webViewLoading ? (
-                <View style={styles.webViewOverlay}>
-                  <PlayerLoadingView message="Cargando checkout seguro..." compact />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-        </SafeAreaView>
-      </Modal>
-
-      {procesando ? (
-        <View style={styles.procesandoOverlay}>
-          <PlayerLoadingView message="Procesando pago..." compact />
-        </View>
-      ) : null}
-
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <CustomAlert
         visible={alertVisible}
         title={alertOptions.title}
@@ -389,6 +210,205 @@ export default function PagarFacturaScreen() {
         onConfirm={handleConfirm}
         onCancel={handleCancel || hideAlert}
       />
+
+      <View style={[styles.header, { borderBottomColor: colors.borderLight }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Pagar factura</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <View style={[styles.resumen, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.periodo, { color: colors.textSecondary }]}>
+              {MESES[factura.mes - 1]} {factura.año}
+            </Text>
+            <Text style={[styles.total, { color: colors.text }]}>{formatCurrency(total)}</Text>
+            {(factura.monto_mora ?? 0) > 0 && (
+              <Text style={[styles.mora, { color: Colors.error }]}>
+                Incluye mora: {formatCurrency(factura.monto_mora ?? 0)}
+              </Text>
+            )}
+          </View>
+
+          <View style={[styles.seguridad, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={Colors.primary} />
+            <Text style={[styles.seguridadText, { color: colors.textSecondary }]}>
+              El pago se procesa de forma segura con PixelPay. Los datos de tu tarjeta no se guardan en Armemosla.
+            </Text>
+          </View>
+
+          {metodos.length > 0 && !usarNuevaTarjeta && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Tarjetas guardadas</Text>
+              {metodos.map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[
+                    styles.metodoCard,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: metodoSeleccionado === m.id ? Colors.primary : colors.border,
+                    },
+                    metodoSeleccionado === m.id && { borderWidth: 2 },
+                  ]}
+                  onPress={() => setMetodoSeleccionado(m.id)}
+                >
+                  <Ionicons
+                    name={metodoSeleccionado === m.id ? 'radio-button-on' : 'radio-button-off'}
+                    size={22}
+                    color={metodoSeleccionado === m.id ? Colors.primary : colors.textSecondary}
+                  />
+                  <Ionicons name="card-outline" size={24} color={colors.text} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.metodoLabel, { color: colors.text }]}>{etiquetaMetodoPago(m)}</Text>
+                    {m.es_predeterminado && (
+                      <Text style={[styles.predeterminado, { color: Colors.primary }]}>Predeterminada</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => void marcarMetodoPredeterminado(m.id).then(cargar)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="star-outline" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() =>
+                      eliminarMetodoPago(m.id)
+                        .then(cargar)
+                        .catch((err) => showError('Error', err.message))
+                    }
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={Colors.error} />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity onPress={() => setUsarNuevaTarjeta(true)}>
+                <Text style={[styles.linkText, { color: Colors.primary }]}>Usar otra tarjeta</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {(usarNuevaTarjeta || metodos.length === 0) && (
+            <>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                {metodos.length > 0 ? 'Nueva tarjeta' : 'Datos de la tarjeta'}
+              </Text>
+              {metodos.length > 0 && (
+                <TouchableOpacity onPress={() => setUsarNuevaTarjeta(false)} style={{ marginBottom: Spacing.sm }}>
+                  <Text style={[styles.linkText, { color: Colors.primary }]}>← Volver a tarjetas guardadas</Text>
+                </TouchableOpacity>
+              )}
+
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                placeholder="Número de tarjeta"
+                placeholderTextColor={colors.textSecondary}
+                value={cardNumber}
+                onChangeText={setCardNumber}
+                keyboardType="number-pad"
+                maxLength={19}
+              />
+              <TextInput
+                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+                placeholder="Nombre del titular"
+                placeholderTextColor={colors.textSecondary}
+                value={cardHolder}
+                onChangeText={setCardHolder}
+                autoCapitalize="words"
+              />
+              <View style={styles.rowInputs}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.inputHalf,
+                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
+                  ]}
+                  placeholder="MM/AA"
+                  placeholderTextColor={colors.textSecondary}
+                  value={cardExpiry}
+                  onChangeText={setCardExpiry}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                />
+                <TextInput
+                  style={[
+                    styles.input,
+                    styles.inputHalf,
+                    { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
+                  ]}
+                  placeholder="CVV"
+                  placeholderTextColor={colors.textSecondary}
+                  value={cardCvv}
+                  onChangeText={setCardCvv}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  secureTextEntry
+                />
+              </View>
+
+              <View style={styles.switchRow}>
+                <Text style={[styles.switchLabel, { color: colors.text }]}>Guardar tarjeta para próximos pagos</Text>
+                <Switch
+                  value={debeGuardarTarjeta}
+                  onValueChange={setDebeGuardarTarjeta}
+                  trackColor={{ false: colors.border, true: Colors.primary }}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { borderColor: colors.border }]}
+                onPress={handleSoloGuardarTarjeta}
+                disabled={procesando}
+              >
+                <Ionicons name="bookmark-outline" size={18} color={Colors.primary} />
+                <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Solo guardar tarjeta</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+
+        <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.background }]}>
+          {!usarNuevaTarjeta && metodoSeleccionado ? (
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: Colors.primary }]}
+              onPress={handlePagarConGuardada}
+              disabled={procesando}
+            >
+              {procesando ? (
+                <ActivityIndicator color={Colors.textInverse} />
+              ) : (
+                <Text style={styles.primaryBtnText}>Pagar {formatCurrency(total)}</Text>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: Colors.primary }]}
+              onPress={handlePagarConNuevaTarjeta}
+              disabled={procesando}
+            >
+              {procesando ? (
+                <ActivityIndicator color={Colors.textInverse} />
+              ) : (
+                <Text style={styles.primaryBtnText}>Pagar {formatCurrency(total)}</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+
+      {procesando && (
+        <View style={styles.procesandoOverlay}>
+          <ActivityIndicator size="large" color={Colors.textInverse} />
+          <Text style={{ color: Colors.textInverse, marginTop: Spacing.sm }}>Procesando pago...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -403,14 +423,13 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
   },
-  backBtn: { padding: Spacing.xs, width: 40 },
+  backBtn: { padding: Spacing.xs },
   headerTitle: { fontSize: Typography.fontSize.lg, fontWeight: Typography.fontWeight.semibold },
-  content: { padding: Spacing.md, paddingBottom: Spacing.xxl },
+  content: { padding: Spacing.md, paddingBottom: Spacing.xl },
   resumen: {
     padding: Spacing.lg,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    alignItems: 'center',
     marginBottom: Spacing.md,
   },
   periodo: { fontSize: Typography.fontSize.sm },
@@ -430,7 +449,7 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.semibold,
     marginBottom: Spacing.sm,
   },
-  empty: { fontSize: Typography.fontSize.sm, marginBottom: Spacing.md, lineHeight: 20 },
+  linkText: { fontSize: Typography.fontSize.sm, fontWeight: Typography.fontWeight.medium, marginBottom: Spacing.md },
   metodoCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -442,6 +461,23 @@ const styles = StyleSheet.create({
   },
   metodoLabel: { fontWeight: Typography.fontWeight.medium },
   predeterminado: { fontSize: Typography.fontSize.xs, marginTop: 2 },
+  input: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    fontSize: Typography.fontSize.md,
+    marginBottom: Spacing.sm,
+  },
+  rowInputs: { flexDirection: 'row', gap: Spacing.sm },
+  inputHalf: { flex: 1 },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: Spacing.md,
+  },
+  switchLabel: { flex: 1, fontSize: Typography.fontSize.sm, marginRight: Spacing.sm },
   secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -450,38 +486,19 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   secondaryBtnText: { fontWeight: Typography.fontWeight.medium },
   footer: {
     padding: Spacing.md,
     borderTopWidth: 1,
-    gap: Spacing.sm,
   },
   primaryBtn: {
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
     alignItems: 'center',
   },
-  primaryBtnText: { color: Colors.textInverse, fontWeight: Typography.fontWeight.semibold },
-  paypalBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-  },
-  paypalBtnText: { color: '#0070BA', fontWeight: Typography.fontWeight.semibold },
-  webHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
-    borderBottomWidth: 1,
-  },
-  webTitle: { fontSize: Typography.fontSize.md, fontWeight: Typography.fontWeight.semibold },
+  primaryBtnText: { color: Colors.textInverse, fontWeight: Typography.fontWeight.semibold, fontSize: Typography.fontSize.md },
   errorState: {
     flex: 1,
     justifyContent: 'center',
@@ -494,15 +511,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-  webViewOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   procesandoOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },

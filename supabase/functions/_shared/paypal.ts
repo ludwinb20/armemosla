@@ -159,21 +159,52 @@ export function formatPayPalError(data: unknown, prefix: string): string {
   const d = data as {
     message?: string;
     name?: string;
+    debug_id?: string;
     details?: Array<{ description?: string; issue?: string; field?: string }>;
   };
   const detail = d?.details?.[0];
   const field = detail?.field ? ` (${detail.field})` : '';
+  const issue = detail?.issue ?? '';
   const raw = detail?.description ?? detail?.issue ?? d?.message ?? JSON.stringify(data);
+  const debugId = d?.debug_id ? ` [debug_id: ${d.debug_id}]` : '';
 
-  if (
+  const vaultNotEnabled =
     d?.name === 'NOT_AUTHORIZED' ||
-    raw.toLowerCase().includes('vault') ||
-    raw.toLowerCase().includes('not onboarded')
-  ) {
-    return `${prefix}: activá Vault y Advanced Card Processing en PayPal Developer (sandbox/live).`;
+    issue === 'PERMISSION_DENIED' ||
+    issue.includes('NOT_ENABLED') ||
+    issue.includes('NOT_ONBOARDED') ||
+    raw.toLowerCase().includes('not onboarded') ||
+    raw.toLowerCase().includes('vaulting is not enabled');
+
+  if (vaultNotEnabled) {
+    return (
+      `${prefix}: tu app PayPal no tiene Vault + tarjetas (ACDC) activos. ` +
+      `Developer Dashboard → tu app REST → Accept payments → Advanced Credit and Debit Card + Vault (Advanced options). ` +
+      `Detalle PayPal: ${raw}${debugId}`
+    );
   }
 
-  return `${prefix}${field}: ${raw}`;
+  return `${prefix}${field}: ${raw}${debugId}`;
+}
+
+/** Serializa error PayPal para respuesta JSON de edge functions. */
+export function paypalErrorPayload(data: unknown, prefix: string): {
+  error: string;
+  paypal_name?: string;
+  paypal_details?: unknown;
+  paypal_debug_id?: string;
+} {
+  const d = data as {
+    name?: string;
+    details?: unknown;
+    debug_id?: string;
+  };
+  return {
+    error: formatPayPalError(data, prefix),
+    paypal_name: d?.name,
+    paypal_details: d?.details,
+    paypal_debug_id: d?.debug_id,
+  };
 }
 
 export function getPayPalReturnBaseUrl(): string {
@@ -245,6 +276,50 @@ export type PayPalSetupToken = {
   payment_source?: Record<string, unknown>;
 };
 
+function buildSetupTokenBody(params: {
+  customerId: string;
+  returnUrl: string;
+  cancelUrl: string;
+}) {
+  return {
+    customer: {
+      merchant_customer_id: toPayPalMerchantCustomerId(params.customerId),
+    },
+    payment_source: {
+      card: {
+        verification_method: 'SCA_WHEN_REQUIRED',
+        experience_context: {
+          brand_name: 'Armemosla',
+          locale: 'en-US',
+          return_url: params.returnUrl,
+          cancel_url: params.cancelUrl,
+          vault_instruction: 'ON_CREATE_PAYMENT_TOKENS',
+        },
+      },
+    },
+  };
+}
+
+/** Prueba setup token y devuelve respuesta cruda (para diagnóstico). */
+export async function probePayPalSetupToken(params: {
+  customerId: string;
+  returnUrl: string;
+  cancelUrl: string;
+}): Promise<{ ok: boolean; status: number; body: Record<string, unknown> }> {
+  const token = await getPayPalAccessToken();
+  const res = await fetch(`${getPayPalApiBase()}/v3/vault/setup-tokens`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify(buildSetupTokenBody(params)),
+  });
+  const body = (await res.json()) as Record<string, unknown>;
+  return { ok: res.ok, status: res.status, body };
+}
+
 export async function createPayPalSetupToken(params: {
   customerId: string;
   returnUrl: string;
@@ -259,27 +334,18 @@ export async function createPayPalSetupToken(params: {
       'Content-Type': 'application/json',
       'PayPal-Request-Id': crypto.randomUUID(),
     },
-    body: JSON.stringify({
-      customer: {
-        merchant_customer_id: toPayPalMerchantCustomerId(params.customerId),
-      },
-      payment_source: {
-        card: {
-          verification_method: 'SCA_WHEN_REQUIRED',
-          experience_context: {
-            brand_name: 'Armemosla',
-            locale: 'en-US',
-            return_url: params.returnUrl,
-            cancel_url: params.cancelUrl,
-            vault_instruction: 'ON_CREATE_PAYMENT_TOKENS',
-          },
-        },
-      },
-    }),
+    body: JSON.stringify(buildSetupTokenBody(params)),
   });
 
   const data = await res.json();
   if (!res.ok) {
+    console.error('[PayPal API] POST /v3/vault/setup-tokens', {
+      status: res.status,
+      customer: toPayPalMerchantCustomerId(params.customerId),
+      returnUrl: params.returnUrl,
+      cancelUrl: params.cancelUrl,
+      response: data,
+    });
     throw new Error(formatPayPalError(data, 'PayPal setup token'));
   }
 
@@ -308,6 +374,11 @@ export async function createPaymentTokenFromSetup(setupTokenId: string): Promise
 
   const data = await res.json();
   if (!res.ok) {
+    console.error('[PayPal API] POST /v3/vault/payment-tokens', {
+      status: res.status,
+      setupTokenId,
+      response: data,
+    });
     throw new Error(formatPayPalError(data, 'PayPal guardar tarjeta'));
   }
 

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { dispatchNotification } from './push/dispatchNotification';
 
 export interface MensajeSolicitudItem {
   id: string;
@@ -347,6 +348,13 @@ export async function enviarMensajeSolicitud(
     console.error('❌ [enviarMensajeSolicitud]', error);
     throw new Error('No se pudo enviar el mensaje');
   }
+
+  const preview = trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed;
+  dispatchNotification('mensaje_solicitud', {
+    solicitud_id: solicitudId,
+    sender_id: user.id,
+    preview,
+  });
 
   const { data: perfil } = await supabase
     .from('profiles')

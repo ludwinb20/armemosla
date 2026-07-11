@@ -33,7 +33,6 @@ import {
   getRModalCardLayout,
   rModalAnimLeft,
 } from '../../../lib/rnModalPresets';
-import { usePushNotifications } from '../../../hooks/usePushNotifications';
 import PartidosMapa, { partidosToMapMarkers } from '../../../components/PartidosMapa';
 import PlayerLoadingView from '../../../components/lottie/PlayerLoadingView';
 import PlayerEmptyState from '../../../components/lottie/PlayerEmptyState';
@@ -78,8 +77,6 @@ export default function BuscarRivalScreen() {
   const [enviandoSolicitud, setEnviandoSolicitud] = useState(false);
 
   const { alertVisible, alertOptions, showError, showSuccess, hideAlert, handleConfirm, handleCancel } = useCustomAlert();
-
-  usePushNotifications();
 
   useEffect(() => {
     const open = params.openCrear === '1' || params.openCrear === 'true';

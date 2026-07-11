@@ -15,6 +15,7 @@
       "**/*"
     ],
     "scheme": "armemosla",
+    "newArchEnabled": true,
     "plugins": [
       "expo-router",
       "expo-font",
@@ -71,6 +72,7 @@
     },
     "android": {
       "usesCleartextTraffic": true,
+      "useNextNotificationsApi": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icono.png",
         "resizeMode": "contain",
@@ -95,7 +97,8 @@
         "googleMaps": {
           "apiKey": "AIzaSyDc6OMuPyp8UBaYHq2HaprhLyVVHiF9LZU"
         }
-      }
+      },
+      "versionCode": 4
     },
     "web": {
       "favicon": "./assets/favicon.png",

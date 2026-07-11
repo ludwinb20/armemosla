@@ -43,6 +43,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import CustomAlert from '../../components/CustomAlert';
 import {
+  getDatosFiscalesCliente,
+  guardarDatosFiscalesCliente,
+  getDatosFiscalesBloqueados,
+  DatosFiscalesCliente,
+} from '../../lib/datosFiscales';
+import {
   getRModalBackdropProps,
   getRModalCenterSheetStyle,
   getRModalCardLayout,
@@ -84,6 +90,12 @@ export default function PerfilScreen() {
   const [formEquipoLogoUri, setFormEquipoLogoUri] = useState<string | null>(null);
   const [subiendoLogo, setSubiendoLogo] = useState(false);
 
+  const [datosFiscales, setDatosFiscales] = useState<DatosFiscalesCliente | null>(null);
+  const [fiscalesBloqueados, setFiscalesBloqueados] = useState(false);
+  const [showFiscalModal, setShowFiscalModal] = useState(false);
+  const [fiscalForm, setFiscalForm] = useState({ razon_social: '', rtn: '', direccion: '' });
+  const [savingFiscal, setSavingFiscal] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
       loadProfile();
@@ -110,11 +122,45 @@ export default function PerfilScreen() {
           email: profileData.email || '',
         });
       }
+
+      if (type === 'Administrador de Cancha') {
+        const [fiscal, bloqueado] = await Promise.all([
+          getDatosFiscalesCliente(),
+          getDatosFiscalesBloqueados(),
+        ]);
+        setDatosFiscales(fiscal);
+        setFiscalesBloqueados(bloqueado);
+        if (fiscal) {
+          setFiscalForm({
+            razon_social: fiscal.razon_social,
+            rtn: fiscal.rtn,
+            direccion: fiscal.direccion || '',
+          });
+        }
+      }
     } catch (error: any) {
       console.error('Error al cargar perfil:', error);
       showError('Error', 'No se pudo cargar la información del perfil');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveFiscal = async () => {
+    if (!fiscalForm.razon_social.trim() || !fiscalForm.rtn.trim()) {
+      showError('Error', 'Razón social y RTN son obligatorios');
+      return;
+    }
+    try {
+      setSavingFiscal(true);
+      const saved = await guardarDatosFiscalesCliente(fiscalForm);
+      setDatosFiscales(saved);
+      setShowFiscalModal(false);
+      showSuccess('Éxito', 'Datos de facturación guardados');
+    } catch (error: unknown) {
+      showError('Error', error instanceof Error ? error.message : 'No se pudieron guardar los datos');
+    } finally {
+      setSavingFiscal(false);
     }
   };
 
@@ -295,6 +341,29 @@ export default function PerfilScreen() {
             <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
+          {userType === 'Administrador de Cancha' && (
+            <TouchableOpacity
+              style={[styles.menuItem, { backgroundColor: colors.surface }]}
+              onPress={() => setShowFiscalModal(true)}
+            >
+              <Ionicons name="document-text-outline" size={24} color={Colors.primary} />
+              <View style={styles.menuItemContent}>
+                <Text style={[styles.menuText, { color: colors.text }]}>Datos de facturación (RTN)</Text>
+                <Text style={[styles.menuSubtext, { color: colors.textSecondary }]}>
+                  {datosFiscales
+                    ? `${datosFiscales.razon_social} · RTN ${datosFiscales.rtn}`
+                    : 'Configurá tu RTN para recibir factura fiscal'}
+                </Text>
+                {fiscalesBloqueados && (
+                  <Text style={[styles.menuSubtext, { color: Colors.warning, marginTop: 4 }]}>
+                    Bloqueado: ya hay facturas fiscales emitidas
+                  </Text>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+
           {userType === 'Jugador' && (
             <TouchableOpacity
               style={[styles.menuItem, { backgroundColor: colors.surface }]}
@@ -337,6 +406,96 @@ export default function PerfilScreen() {
           <Text style={styles.signOutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Modal Datos Fiscales */}
+      <RNModal
+        {...rBackdrop}
+        {...rModalAnimLeft}
+        isVisible={showFiscalModal}
+        onBackdropPress={() => setShowFiscalModal(false)}
+        onBackButtonPress={() => setShowFiscalModal(false)}
+        avoidKeyboard
+        style={rCenter}
+      >
+        <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background, maxHeight: modalMaxHeight }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Datos de facturación</Text>
+              <TouchableOpacity onPress={() => setShowFiscalModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={{ maxHeight: modalScrollAreaMaxHeight }}
+              contentContainerStyle={styles.modalBodyContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {fiscalesBloqueados && (
+                <View style={[styles.warningBox, { backgroundColor: Colors.warning + '20', borderColor: Colors.warning }]}>
+                  <Text style={[styles.warningText, { color: colors.textSecondary }]}>
+                    No podés editar estos datos porque ya se emitió al menos una factura fiscal a tu nombre.
+                  </Text>
+                </View>
+              )}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Razón social</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+                  value={fiscalForm.razon_social}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, razon_social: text })}
+                  editable={!fiscalesBloqueados}
+                  placeholder="Nombre legal de la empresa"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>RTN</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+                  value={fiscalForm.rtn}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, rtn: text })}
+                  editable={!fiscalesBloqueados}
+                  placeholder="0801..."
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="number-pad"
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Dirección (opcional)</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+                  value={fiscalForm.direccion}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, direccion: text })}
+                  editable={!fiscalesBloqueados}
+                  placeholder="Dirección fiscal"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </ScrollView>
+            {!fiscalesBloqueados && (
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonCancel, { backgroundColor: colors.surface }]}
+                  onPress={() => setShowFiscalModal(false)}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.text }]}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSave, { backgroundColor: Colors.primary }]}
+                  onPress={() => void handleSaveFiscal()}
+                  disabled={savingFiscal}
+                >
+                  {savingFiscal ? (
+                    <ActivityIndicator size="small" color={Colors.text} />
+                  ) : (
+                    <Text style={styles.modalButtonTextSave}>Guardar</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </SafeAreaView>
+      </RNModal>
 
       {/* Modal de Editar Perfil */}
       <RNModal
