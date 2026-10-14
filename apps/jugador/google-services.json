@@ -1,0 +1,150 @@
+{
+  "project_info": {
+    "project_number": "746084376004",
+    "project_id": "armemosla",
+    "storage_bucket": "armemosla.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746084376004:android:4ff9f34ac35310a1095891",
+        "android_client_info": {
+          "package_name": "com.armemosla.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746084376004-a7o83lq0suj6aahlr30tndijbdoacdrg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "746084376004-tetngloobvbvlfdb9tl252ptk75uv6s0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.app",
+            "certificate_hash": "9a2ecb7fa8560f933be83d68570d939115a531f2"
+          }
+        },
+        {
+          "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEvn8v8ICUMQPsgrb2C3Z99I3Gp5vu92E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746084376004-n03tclsu74k8506rm34smag92ln8lri1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.armemosla.app"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746084376004:android:8fabb3c31440bd6a095891",
+        "android_client_info": {
+          "package_name": "com.armemosla.dueno"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746084376004-8s2nbsjtl6o5p6gamje0bs2nil5tk4dd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.dueno",
+            "certificate_hash": "1bc2fa15fc923b2d0661cb4b0532f7bf2e92c163"
+          }
+        },
+        {
+          "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEvn8v8ICUMQPsgrb2C3Z99I3Gp5vu92E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746084376004-n03tclsu74k8506rm34smag92ln8lri1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.armemosla.app"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746084376004:android:e7f571b626f502fa095891",
+        "android_client_info": {
+          "package_name": "com.armemosla.jugador"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746084376004-8dm97acvtu5g1e9jnhvqq5nrqgg2up5i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.armemosla.jugador",
+            "certificate_hash": "f9a1ad410454bf82cc3993f5ea431b22f3c76740"
+          }
+        },
+        {
+          "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCEvn8v8ICUMQPsgrb2C3Z99I3Gp5vu92E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746084376004-68qtr6so4oikpdfhm20aem7rk6crk48t.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746084376004-n03tclsu74k8506rm34smag92ln8lri1.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.armemosla.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

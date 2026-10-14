@@ -1,0 +1,45 @@
+{
+  "brand": {
+    "primary": "#00C56E",
+    "primaryDark": "#00A05A",
+    "primaryLight": "#00E07D",
+    "success": "#00C56E",
+    "warning": "#F59E0B",
+    "error": "#EF4444",
+    "info": "#00C56E"
+  },
+  "light": {
+    "background": "#EEF1F4",
+    "surfaceGlass": "rgba(255, 255, 255, 0.42)",
+    "surfaceGlassTint": "rgba(255, 255, 255, 0.16)",
+    "surfaceGlassSolid": "rgba(255, 255, 255, 0.58)",
+    "surfaceDialog": "rgba(255, 255, 255, 0.78)",
+    "borderGlass": "rgba(255, 255, 255, 0.65)",
+    "borderSubtle": "rgba(0, 0, 0, 0.07)",
+    "text": "#111111",
+    "textSecondary": "#666666",
+    "textTertiary": "#999999",
+    "textInverse": "#FFFFFF",
+    "tabBar": "rgba(255, 255, 255, 0.38)",
+    "overlay": "rgba(0, 0, 0, 0.35)"
+  },
+  "dark": {
+    "background": "#080808",
+    "surfaceGlass": "rgba(255, 255, 255, 0.08)",
+    "surfaceGlassTint": "rgba(255, 255, 255, 0.03)",
+    "surfaceGlassSolid": "rgba(255, 255, 255, 0.12)",
+    "surfaceDialog": "rgba(16, 16, 16, 0.78)",
+    "borderGlass": "rgba(255, 255, 255, 0.18)",
+    "borderSubtle": "rgba(255, 255, 255, 0.08)",
+    "text": "#FFFFFF",
+    "textSecondary": "#CCCCCC",
+    "textTertiary": "#999999",
+    "textInverse": "#000000",
+    "tabBar": "rgba(8, 8, 8, 0.38)",
+    "overlay": "rgba(0, 0, 0, 0.55)"
+  },
+  "blur": {
+    "intensity": 72,
+    "intensityStrong": 96
+  }
+}

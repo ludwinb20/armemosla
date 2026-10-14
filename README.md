@@ -1,112 +1,49 @@
-# Armemosla
+# Armemosla (monorepo)
 
-App de alquiler de canchas construida con React Native, Expo y Supabase.
+App de alquiler de canchas y retos. Estructura:
 
-## 🚀 Tecnologías
-
-- **React Native** - Framework para desarrollo móvil
-- **Expo** - Plataforma para desarrollo React Native
-- **Supabase** - Backend como servicio (BaaS)
-- **TypeScript** - Tipado estático
-- **pnpm** - Gestor de paquetes
-
-## 📋 Requisitos Previos
-
-- Node.js (versión 18 o superior)
-- pnpm instalado globalmente (`npm install -g pnpm`)
-- Cuenta de Supabase (gratuita en [supabase.com](https://supabase.com))
-
-## 🛠️ Instalación
-
-1. Clona el repositorio:
-```bash
-git clone <url-del-repositorio>
-cd armemosla
+```
+apps/jugador     # Expo — jugadores
+apps/dueno       # Expo — dueños de cancha
+apps/admin-web   # Next.js — superadmin
+packages/shared  # Tipos y lógica compartida (Supabase)
+db_settings/     # SQL / RLS
+supabase/        # Edge Functions
 ```
 
-2. Instala las dependencias:
+## Requisitos
+
+- Node.js 20+
+- pnpm 10 (`packageManager` en root)
+- Expo / EAS para builds nativos
+
+## Setup
+
 ```bash
 pnpm install
 ```
 
-3. Configura las variables de entorno:
-   - Crea un archivo `.env` en la raíz del proyecto
-   - Agrega tus credenciales de Supabase:
-```
-EXPO_PUBLIC_SUPABASE_URL=tu_url_de_supabase
-EXPO_PUBLIC_SUPABASE_ANON_KEY=tu_clave_anonima_de_supabase
-```
+Copiá variables:
 
-   O configura las variables en `app.config.js` en la sección `extra`.
+- Móviles: `apps/jugador/.env` y `apps/dueno/.env` (mismo formato `EXPO_PUBLIC_*` de antes)
+- Admin web: `apps/admin-web/.env.local` con `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-## 🏃 Ejecutar el Proyecto
+Aplicá el CRM en Supabase:
 
-- **Iniciar el servidor de desarrollo:**
 ```bash
-pnpm start
+# Ejecutar en el SQL editor (o tu flujo habitual):
+# db_settings/56_prospectos_venues.sql
 ```
 
-- **Ejecutar en Android:**
+## Scripts
+
 ```bash
-pnpm android
+pnpm jugador          # Expo app jugadores
+pnpm dueno            # Expo app dueños
+pnpm admin-web        # Next.js en :3001
 ```
 
-- **Ejecutar en iOS:**
-```bash
-pnpm ios
-```
+## Roles
 
-- **Ejecutar en Web:**
-```bash
-pnpm web
-```
-
-## 📁 Estructura del Proyecto
-
-```
-armemosla/
-├── App.tsx              # Componente principal
-├── index.js             # Punto de entrada
-├── app.config.js        # Configuración de Expo
-├── lib/
-│   ├── supabase.ts      # Cliente de Supabase
-│   └── auth.example.ts  # Ejemplos de autenticación
-└── assets/              # Recursos (imágenes, fuentes, etc.)
-```
-
-## 🔐 Configuración de Supabase
-
-1. Crea un proyecto en [Supabase](https://supabase.com)
-2. Ve a Settings > API
-3. Copia la URL del proyecto y la clave anónima (anon key)
-4. Agrega estas credenciales a tu archivo `.env` o `app.config.js`
-
-## 📚 Uso de Supabase
-
-El cliente de Supabase está configurado en `lib/supabase.ts`. Puedes importarlo en cualquier componente:
-
-```typescript
-import { supabase } from './lib/supabase';
-
-// Ejemplo: Consultar datos
-const { data, error } = await supabase
-  .from('tu_tabla')
-  .select('*');
-```
-
-Revisa `lib/auth.example.ts` para ejemplos de autenticación.
-
-## 📝 Scripts Disponibles
-
-- `pnpm start` - Inicia el servidor de desarrollo de Expo
-- `pnpm android` - Ejecuta la app en Android
-- `pnpm ios` - Ejecuta la app en iOS
-- `pnpm web` - Ejecuta la app en el navegador
-
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas. Por favor, abre un issue o un pull request.
-
-## 📄 Licencia
-
-ISC
+- Cada app móvil fija su `user_type` (no hay cambio de rol en Perfil).
+- Admin plataforma (`es_admin_plataforma`) solo en `apps/admin-web`.

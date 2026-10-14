@@ -1,0 +1,120 @@
+{
+  "expo": {
+    "name": "Armemosla",
+    "slug": "armemosla-jugador",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icono.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/logopng.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "armemosla-jugador",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-asset",
+      "expo-splash-screen",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.746084376004-n03tclsu74k8506rm34smag92ln8lri1"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icono.png",
+          "color": "#000000",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Permitir acceso al micrófono para grabar audio."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir acceso a la cámara para escanear códigos QR de recompensas."
+        }
+      ],
+      "expo-video",
+      "expo-dev-client",
+      [
+        "expo-maps",
+        {
+          "googleMapsApiKey": "AIzaSyDc6OMuPyp8UBaYHq2HaprhLyVVHiF9LZU"
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.armemosla.jugador",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio",
+          "remote-notification"
+        ],
+        "NSLocationWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Esta app necesita acceso a tu ubicación para seleccionar la dirección del complejo deportivo en el mapa.",
+        "NSCameraUsageDescription": "Esta app necesita acceso a la cámara para escanear códigos QR de recompensas en la cancha."
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "useNextNotificationsApi": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icono.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.armemosla.jugador",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "NOTIFICATIONS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDc6OMuPyp8UBaYHq2HaprhLyVVHiF9LZU"
+        }
+      },
+      "versionCode": 4
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2ec42ad0-936e-4837-9110-14d12f475f87"
+      },
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "googleIosClientId": "",
+      "googleAndroidClientId": "",
+      "googleWebClientId": "",
+      "router": {}
+    },
+    "owner": "ludwinb"
+  }
+}

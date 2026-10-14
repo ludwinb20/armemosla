@@ -56,6 +56,12 @@ web-build/
 # Environment variables
 .env
 .env.local
+apps/*/.env
+apps/*/.env.local
+
+# Next.js
+apps/admin-web/.next/
+apps/admin-web/out/
 
 # TypeScript
 *.tsbuildinfo
